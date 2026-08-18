@@ -85,9 +85,22 @@ const getMemberDetails = async (req, res) => {
       await foundUser.save();
     }
 
+    const idStr = String(foundUser.Member_id || foundUser.member_id || '1');
+    let numericPart = idStr.replace(/\D/g, '');
+    if (!numericPart) {
+      let seed = 5381;
+      for (let i = 0; i < idStr.length; i++) {
+        seed = (seed * 33) ^ idStr.charCodeAt(i);
+      }
+      numericPart = String(Math.abs(seed));
+    }
+    const last6 = numericPart.padStart(6, '0').slice(-6);
+    const virtual_card_number = ('4638292644' + last6).replace(/(.{4})/g, '$1 ').trim();
+
     // Add registration data to response
     const responseData = {
       ...foundUser.toObject(),
+      virtual_card_number,
       qr_code: foundUser.qr_code || `BMS-P2P:${foundUser.Member_id || foundUser.member_id}`,
       registration_stats: {
         direct: directCount,

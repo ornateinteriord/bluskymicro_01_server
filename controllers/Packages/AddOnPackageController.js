@@ -426,14 +426,10 @@ const buyPackageDirectly = async (req, res) => {
     let bundleAmounts = [];
     if (requested_amount === 10000 || requested_amount === 25000) {
       bundleAmounts = [10000, 25000, '10000', '25000'];
-    } else if (requested_amount === 50000 || requested_amount === 100000) {
-      bundleAmounts = [50000, 100000, '50000', '100000'];
-    } else if (requested_amount === 200000 || requested_amount === 500000) {
-      bundleAmounts = [200000, 500000, '200000', '500000'];
+    } else {
+      bundleAmounts = [requested_amount, requested_amount.toString()];
     }
 
-    /*
-    // TODO: Temporarily disabled per user request
     if (bundleAmounts.length > 0) {
       try {
         const primaryBuyers = await MemberModel.find({
@@ -517,7 +513,6 @@ const buyPackageDirectly = async (req, res) => {
         console.error("Error distributing single leg income to previous buyers:", err);
       }
     }
-    */
     // ----------------------------------------------------------------------
 
 

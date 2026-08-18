@@ -21,10 +21,14 @@ const distributeGlobalIncome = async (memberId, packageAmount) => {
     let bundleName = null;
     if (amount === 10000 || amount === 25000) {
       bundleName = "Bundle_1";
-    } else if (amount === 50000 || amount === 100000) {
-      bundleName = "Bundle_2";
-    } else if (amount === 200000 || amount === 500000) {
-      bundleName = "Bundle_3";
+    } else if (amount === 50000) {
+      bundleName = "Bundle_50k";
+    } else if (amount === 100000) {
+      bundleName = "Bundle_100k";
+    } else if (amount === 200000) {
+      bundleName = "Bundle_200k";
+    } else if (amount === 500000) {
+      bundleName = "Bundle_500k";
     } else {
       // If it doesn't fit in bundles, skip Global Income.
       console.log(`[GlobalIncome] Package amount ₹${amount} does not belong to a bundle. Skipping Global Income.`);

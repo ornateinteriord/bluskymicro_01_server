@@ -112,13 +112,20 @@ const processAutoUpgrades = async () => {
         const upgradeAmount = Number((singleLineIncomeAmount - earningsAmount).toFixed(2));
 
         try {
+          let bundleAmounts = [];
+          if (requested_amount === 10000 || requested_amount === 25000) {
+            bundleAmounts = [10000, 25000, '10000', '25000'];
+          } else {
+            bundleAmounts = [requested_amount, requested_amount.toString()];
+          }
+
           const primaryBuyers = await MemberModel.find({
-            package_value: { $in: [requested_amount, requested_amount.toString()] },
+            package_value: { $in: bundleAmounts },
             Member_id: { $ne: finalTargetId }
           }).select('Member_id Name mobileno createdAt').lean();
 
           const addonBuyers = await AddOnPackageModel.find({
-            amount: { $in: [requested_amount, requested_amount.toString()] },
+            amount: { $in: bundleAmounts },
             member_id: { $ne: finalTargetId }
           }).select('member_id createdAt').lean();
 

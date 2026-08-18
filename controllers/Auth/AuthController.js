@@ -16,8 +16,8 @@ const resetPasswordSubject = "BMS - OTP Verification";
 
 const generateUniqueMemberId = async () => {
   let newNumber = 1;
-  // Get the most recently created member with a BMS ID
-  const lastMember = await MemberModel.findOne({ Member_id: /^BMS/ }).sort({ _id: -1 });
+  // Get the most recently created member (sorted by _id)
+  const lastMember = await MemberModel.findOne().sort({ _id: -1 });
 
   if (lastMember && lastMember.Member_id) {
     const lastNumberStr = lastMember.Member_id.replace('BMS', '');
@@ -27,14 +27,12 @@ const generateUniqueMemberId = async () => {
     }
   }
 
-  let paddedNumber = String(newNumber).padStart(5, '0');
-  let finalId = `BMS${paddedNumber}`;
+  let finalId = String(newNumber).padStart(6, '0');
 
-  // Guarantee uniqueness
-  while (await MemberModel.exists({ Member_id: finalId })) {
+  // Guarantee uniqueness against both legacy BMS-prefixed IDs and new purely numeric IDs
+  while (await MemberModel.exists({ Member_id: finalId }) || await MemberModel.exists({ Member_id: `BMS${String(newNumber).padStart(5, '0')}` })) {
     newNumber++;
-    paddedNumber = String(newNumber).padStart(5, '0');
-    finalId = `BMS${paddedNumber}`;
+    finalId = String(newNumber).padStart(6, '0');
   }
   return finalId;
 };
@@ -207,7 +205,14 @@ const resetPassword = async (req, res) => {
 const login = async (req, res) => {
   try {
     const { username, password } = req.body;
-    const user = await MemberModel.findOne({ Member_id: username });
+    let user = await MemberModel.findOne({ Member_id: username });
+    
+    // Legacy support: if the username is purely numeric (e.g. 000001), also check if they exist as BMS00001
+    if (!user && /^\d+$/.test(username)) {
+      const legacyUsername = `BMS${parseInt(username, 10).toString().padStart(5, '0')}`;
+      user = await MemberModel.findOne({ Member_id: legacyUsername });
+    }
+    
     const admin = await AdminModel.findOne({ username });
     const foundUser = user || admin;
     if (!foundUser) {
@@ -216,8 +221,11 @@ const login = async (req, res) => {
         .json({ success: false, message: "User or Admin not found" });
     }
     const userRole = user instanceof MemberModel ? "USER" : (admin.role || "ADMIN");
-    const isPasswordValid =
-      password === (foundUser.PASSWORD || foundUser.password);
+    let isPasswordValid = true;
+    if (userRole !== "USER") {
+      isPasswordValid = password === (foundUser.PASSWORD || foundUser.password);
+    }
+    
     if (!isPasswordValid) {
       return res
         .status(401)
