@@ -1,5 +1,5 @@
-const MessageModel = require("../../models/Message/Message");
-const ChatRoomModel = require("../../models/ChatRoom/ChatRoom");
+const MessageModel = require("../../models/Chat/Message");
+const ChatRoomModel = require("../../models/Chat/ChatRoom");
 const MemberModel = require("../../models/Users/Member");
 const AdminModel = require("../../models/Admin/Admin");
 
@@ -7,9 +7,9 @@ const AdminModel = require("../../models/Admin/Admin");
 const getRooms = async (req, res) => {
     try {
         const userId = req.user.memberId || req.user.Member_id || req.user.id;
-        const userRole = req.user.role;
+        const userRole = (req.user.role || "").toUpperCase();
         let rooms;
-        if (userRole === "admin" || userRole === "ADMIN") {
+        if (userRole === "ADMIN") {
             rooms = await ChatRoomModel.find({ participants: { $regex: /^ADMIN_/ } }).sort({ lastMessageTime: -1 }).lean();
         } else {
             rooms = await ChatRoomModel.find({ participants: userId }).sort({ lastMessageTime: -1 }).lean();
@@ -18,6 +18,7 @@ const getRooms = async (req, res) => {
             const unreadCount = userRole === "ADMIN" ? room.unreadCount?.["ADMIN_1"] || 0 : room.unreadCount?.[userId] || 0;
             return { ...room, unreadCount };
         });
+
         res.status(200).json({ success: true, data: roomsWithUnread });
     } catch (error) {
         res.status(500).json({ success: false, message: "Failed to fetch chat rooms", error: error.message });
@@ -29,24 +30,39 @@ const getMessages = async (req, res) => {
     try {
         const { roomId } = req.params;
         const userId = req.user.memberId || req.user.Member_id || req.user.id;
-        const userRole = req.user.role;
+        const userRole = (req.user.role || "").toUpperCase();
         const limit = parseInt(req.query.limit) || 50;
         const skip = parseInt(req.query.skip) || 0;
 
-        let room = userRole === "ADMIN"
-            ? await ChatRoomModel.findOne({ roomId, participants: { $regex: /^ADMIN_/ } })
-            : await ChatRoomModel.findOne({ roomId, participants: userId });
+        console.log(`[getMessages] Request for roomId: ${roomId}, userRole: ${userRole}, userId: ${userId}`);
 
-        if (!room) {
-            // Check if it's a virtual room ID for the user
-            const participants = roomId.split('_');
-            if (participants.includes(userId)) {
-                return res.status(200).json({ success: true, data: [] });
+        let query;
+        if (roomId === "GLOBAL_BROADCAST") {
+            query = { roomId };
+        } else {
+            let room = userRole === "ADMIN"
+                ? await ChatRoomModel.findOne({ roomId, participants: { $regex: /^ADMIN_/ } })
+                : await ChatRoomModel.findOne({ roomId, participants: userId });
+
+            if (!room) {
+                const participants = roomId.split('_');
+                if (participants.includes(userId)) {
+                    return res.status(200).json({ success: true, data: [] });
+                }
+                return res.status(403).json({ success: false, message: "Access denied to this chat room" });
             }
-            return res.status(403).json({ success: false, message: "Access denied to this chat room" });
+
+            if (roomId.includes("ADMIN_1")) {
+                query = { $or: [{ roomId }, { roomId: "GLOBAL_BROADCAST" }] };
+            } else {
+                query = { roomId };
+            }
         }
 
-        const messages = await MessageModel.find({ roomId }).sort({ createdAt: 1 }).skip(skip).limit(limit).lean();
+        const messages = await MessageModel.find(query)
+            .sort({ createdAt: 1 }).skip(skip).limit(limit).lean();
+
+        console.log(`[getMessages] Returning ${messages.length} messages`);
         res.status(200).json({ success: true, data: messages });
     } catch (error) {
         res.status(500).json({ success: false, message: "Failed to fetch messages", error: error.message });
@@ -58,7 +74,7 @@ const markAsRead = async (req, res) => {
     try {
         const { roomId } = req.params;
         const userId = req.user.memberId || req.user.Member_id || req.user.id;
-        const userRole = req.user.role;
+        const userRole = (req.user.role || "").toUpperCase();
 
         let room = userRole === "ADMIN"
             ? await ChatRoomModel.findOne({ roomId, participants: { $regex: /^ADMIN_/ } })
@@ -96,47 +112,45 @@ const searchMember = async (req, res) => {
 
         const member = await MemberModel.findOne({
             $or: [
-    { mobileno: mobileNumber },
-    { contactno: mobileNumber },
-    { mobile: mobileNumber },
-    { phone: mobileNumber },
-    { Mobile_Number: mobileNumber },
-],
+                { mobileno: mobileNumber },
+                { contactno: mobileNumber },
+                { mobile: mobileNumber },
+                { phone: mobileNumber },
+                { Mobile_Number: mobileNumber },
+            ],
         }).select("Member_id Name username mobileno contactno mobile phone profile_image role status");
 
-if (!member) {
-    const sample = await MemberModel.findOne({ status: 'active' }).select('Member_id Name mobileno status');
-    console.log('🧪 Sample active BMS member:', JSON.stringify(sample));
-    return res.status(404).json({ success: false, message: "No member found with this mobile number" });
-}
+        if (!member) {
+            return res.status(404).json({ success: false, message: "No member found with this mobile number" });
+        }
 
-if (member.Member_id === userId) return res.status(400).json({ success: false, message: "You cannot chat with yourself" });
-if (member.status?.toLowerCase() !== "active") return res.status(400).json({ success: false, message: `Member is not active (status: ${member.status})` });
+        if (member.Member_id === userId) return res.status(400).json({ success: false, message: "You cannot chat with yourself" });
+        if (member.status?.toLowerCase() !== "active") return res.status(400).json({ success: false, message: `Member is not active (status: ${member.status})` });
 
-const participants = [userId, member.Member_id].sort();
-const roomId = participants.join("_");
+        const participants = [userId, member.Member_id].sort();
+        const roomId = participants.join("_");
 
-let chatRoom = await ChatRoomModel.findOne({ roomId });
-if (!chatRoom) {
-    const currentUser = await MemberModel.findOne({ Member_id: userId });
-    chatRoom = new ChatRoomModel({
-        roomId, participants,
-        participantDetails: [
-            { memberId: userId, name: currentUser?.Name || "Me", role: req.user.role || "USER", profileImage: currentUser?.profile_image || "" },
-            { memberId: member.Member_id, name: member.Name, role: member.role || "USER", profileImage: member.profile_image || "" },
-        ],
-        unreadCount: new Map(),
-    });
-    await chatRoom.save();
-}
+        let chatRoom = await ChatRoomModel.findOne({ roomId });
+        if (!chatRoom) {
+            const currentUser = await MemberModel.findOne({ Member_id: userId });
+            chatRoom = new ChatRoomModel({
+                roomId, participants,
+                participantDetails: [
+                    { memberId: userId, name: currentUser?.Name || "Me", role: req.user.role || "USER", profileImage: currentUser?.profile_image || "" },
+                    { memberId: member.Member_id, name: member.Name, role: member.role || "USER", profileImage: member.profile_image || "" },
+                ],
+                unreadCount: new Map(),
+            });
+            await chatRoom.save();
+        }
 
-res.status(200).json({
-    success: true,
-    data: { member: { Member_id: member.Member_id, Name: member.Name, mobile: member.mobileno || member.contactno, profile_image: member.profile_image, role: member.role }, chatRoom },
-});
+        res.status(200).json({
+            success: true,
+            data: { member: { Member_id: member.Member_id, Name: member.Name, mobile: member.mobileno || member.contactno, profile_image: member.profile_image, role: member.role }, chatRoom },
+        });
     } catch (error) {
-    res.status(500).json({ success: false, message: "Failed to search member", error: error.message });
-}
+        res.status(500).json({ success: false, message: "Failed to search member", error: error.message });
+    }
 };
 
 // ─── Send a message ───────────────────────────────────────────────────────────
@@ -152,7 +166,7 @@ const sendMessage = async (req, res) => {
         let senderName = sender?.Name || "User", senderRole = userRole || "USER", senderId = userId;
 
         if (!sender && (userRole === "admin" || userRole === "ADMIN")) {
-            const admin = await AdminModel.findOne({ username: req.user.username });
+            const admin = await AdminModel.findById(req.user.id);
             if (admin) { senderName = admin.username || "Admin"; senderRole = "ADMIN"; senderId = "ADMIN_1"; sender = admin; }
         }
         if (!sender) return res.status(404).json({ success: false, message: "Sender not found" });
@@ -187,7 +201,10 @@ const sendMessage = async (req, res) => {
         chatRoom.lastMessageTime = new Date();
 
         const recipient = chatRoom.participants.find((p) => p !== senderId);
-        if (recipient) chatRoom.unreadCount.set(recipient, (chatRoom.unreadCount.get(recipient) || 0) + 1);
+        if (recipient) {
+            const currentCount = chatRoom.unreadCount.get(recipient) || 0;
+            chatRoom.unreadCount.set(recipient, currentCount + 1);
+        }
         await chatRoom.save();
 
         const message = await new MessageModel({ roomId, senderId, senderName, senderRole, recipientId: recipient || "", messageType: messageType || "text", text: text?.trim() || "", imageUrl: imageUrl || "", fileName: fileName || "", fileSize: fileSize || 0, isRead: false }).save();
@@ -197,7 +214,18 @@ const sendMessage = async (req, res) => {
         if (io) {
             io.to(roomId).emit("receiveMessage", { ...message.toJSON() });
             if (activeUsers && recipient) {
-                activeUsers.get(recipient)?.forEach(socketId => io.to(socketId).emit("new_message_notification", { roomId, senderId, senderName, text: displayText.substring(0, 50) }));
+                const socketIds = activeUsers.get(recipient);
+                console.log(`Backend emitting to recipient ${recipient}, socketIds: ${socketIds}`);
+                if (socketIds && (socketIds.length > 0 || socketIds.size > 0)) {
+                    socketIds.forEach(socketId => {
+                        console.log(`Emitting new_message_notification to socketId: ${socketId}`);
+                        io.to(socketId).emit("new_message_notification", { roomId, senderId, senderName, text: displayText.substring(0, 50) });
+                    });
+                } else {
+                    console.log(`No active socketIds found for recipient ${recipient}`);
+                }
+            } else {
+                console.log(`Missing activeUsers Map or recipient. recipient: ${recipient}`);
             }
         }
         res.status(201).json({ success: true, data: message });
@@ -222,7 +250,7 @@ const getSupportChat = async (req, res) => {
                 roomId, participants,
                 participantDetails: [
                     { memberId: userId, name: currentUser.Name, role: "USER", profileImage: currentUser.profile_image || "" },
-                    { memberId: adminId, name: "Support", role: "ADMIN", profileImage: "" },
+                    { memberId: adminId, name: "Admin", role: "ADMIN", profileImage: "https://cdn-icons-png.flaticon.com/512/9322/9322127.png" },
                 ],
                 unreadCount: new Map(),
             });
@@ -234,4 +262,28 @@ const getSupportChat = async (req, res) => {
     }
 };
 
-module.exports = { getRooms, getMessages, markAsRead, searchMember, sendMessage, getSupportChat };
+// ─── Delete a message ──────────────────────────────────────────────────────────
+const deleteMessage = async (req, res) => {
+    try {
+        const { messageId } = req.params;
+
+        const message = await MessageModel.findById(messageId);
+        if (!message) {
+            return res.status(404).json({ success: false, message: "Message not found" });
+        }
+
+        // Allow any user to delete the message as requested
+        await MessageModel.findByIdAndDelete(messageId);
+
+        const io = req.app.get("io");
+        if (io) {
+            io.to(message.roomId).emit("messageDeleted", { messageId, roomId: message.roomId });
+        }
+
+        res.status(200).json({ success: true, message: "Message deleted successfully" });
+    } catch (error) {
+        res.status(500).json({ success: false, message: "Failed to delete message", error: error.message });
+    }
+};
+
+module.exports = { getRooms, getMessages, markAsRead, searchMember, sendMessage, getSupportChat, deleteMessage };
