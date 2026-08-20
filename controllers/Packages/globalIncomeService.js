@@ -19,8 +19,10 @@ const distributeGlobalIncome = async (memberId, packageAmount) => {
     // Bundle 2: 50000, 100000
     // Bundle 3: 200000, 500000
     let bundleName = null;
-    if (amount === 10000 || amount === 25000) {
-      bundleName = "Bundle_1";
+    if (amount === 10000) {
+      bundleName = "Bundle_10k";
+    } else if (amount === 25000) {
+      bundleName = "Bundle_25k";
     } else if (amount === 50000) {
       bundleName = "Bundle_50k";
     } else if (amount === 100000) {
@@ -73,8 +75,8 @@ const distributeGlobalIncome = async (memberId, packageAmount) => {
       if (beneficiaryEntry && beneficiaryEntry.member_id) {
         const beneficiaryId = beneficiaryEntry.member_id;
         
-        // Payout is exactly 1% of the BENEFICIARY's own package amount.
-        const payoutAmount = Number((beneficiaryEntry.package_amount * 0.01).toFixed(2));
+        // Payout is exactly 1% of the NEW buyer's package amount.
+        const payoutAmount = Number((amount * 0.01).toFixed(2));
 
         // Add 100% of the payout balance strictly to their FD wallet
         await MemberModel.findOneAndUpdate(

@@ -423,12 +423,7 @@ const buyPackageDirectly = async (req, res) => {
 
     // --- NEW: Single Leg Income (1% cashback to the user themselves + up to 100 previous buyers of the same package) ---
     // Calculate bundle amounts based on the requested amount
-    let bundleAmounts = [];
-    if (requested_amount === 10000 || requested_amount === 25000) {
-      bundleAmounts = [10000, 25000, '10000', '25000'];
-    } else {
-      bundleAmounts = [requested_amount, requested_amount.toString()];
-    }
+    let bundleAmounts = [requested_amount, requested_amount.toString()];
 
     if (bundleAmounts.length > 0) {
       try {
@@ -479,8 +474,8 @@ const buyPackageDirectly = async (req, res) => {
         console.log(`============================================`);
 
         for (const member of finalEligibleMembers) {
-          // Each upliner gets 1% of THEIR OWN package amount, all to FD Wallet
-          const memberSingleLegIncome = Number((member.package_amount * 0.01).toFixed(2));
+          // Each upliner gets 1% of the NEW buyer's package amount, all to FD Wallet
+          const memberSingleLegIncome = Number((requested_amount * 0.01).toFixed(2));
           if (memberSingleLegIncome > 0) {
             const fdAmount = memberSingleLegIncome;
             

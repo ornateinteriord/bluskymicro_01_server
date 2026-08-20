@@ -105,19 +105,14 @@ const processAutoUpgrades = async () => {
       }
 
       // 4. Single Leg Income Logic
-      const singleLineIncomeAmount = Number((requested_amount * 0.015).toFixed(2));
+      const singleLineIncomeAmount = Number((requested_amount * 0.01).toFixed(2));
 
       if (singleLineIncomeAmount > 0) {
         const earningsAmount = Number((singleLineIncomeAmount / 2).toFixed(2));
         const upgradeAmount = Number((singleLineIncomeAmount - earningsAmount).toFixed(2));
 
         try {
-          let bundleAmounts = [];
-          if (requested_amount === 10000 || requested_amount === 25000) {
-            bundleAmounts = [10000, 25000, '10000', '25000'];
-          } else {
-            bundleAmounts = [requested_amount, requested_amount.toString()];
-          }
+          let bundleAmounts = [requested_amount, requested_amount.toString()];
 
           const primaryBuyers = await MemberModel.find({
             package_value: { $in: bundleAmounts },
