@@ -5,12 +5,6 @@
 		},
 		{
 			"path": "../.."
-		},
-		{
-			"path": "../../../../JeevaHerbs-ui/jeevaherbs-ui"
-		},
-		{
-			"path": "../../../../JeevaHerbs-server/jeevaherbs-server"
 		}
 	],
 	"settings": {}
