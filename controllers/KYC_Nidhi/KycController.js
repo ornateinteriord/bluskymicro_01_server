@@ -131,7 +131,8 @@ exports.submitKYC = async (req, res) => {
       checkImage,
       passbookImage,
       rationCardImage,
-      profileImage
+      profileImage,
+      upiId
     } = req.body;
 
     const member = await MemberModel.findOne({ member_id: ref_no });
@@ -153,6 +154,7 @@ exports.submitKYC = async (req, res) => {
     member.account_number = bankAccount || member.account_number;
     member.ifsc_code = ifsc || member.ifsc_code;
     member.bank_name = bankName || member.bank_name;
+    member.upi_id = upiId || member.upi_id;
     member.kycStatus = "PROCESSING";
     member.panImage = panImage || member.panImage;
     member.aadhaarImage = aadhaarImage || member.aadhaarImage;

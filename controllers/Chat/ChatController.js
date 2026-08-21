@@ -117,6 +117,8 @@ const searchMember = async (req, res) => {
                 { mobile: mobileNumber },
                 { phone: mobileNumber },
                 { Mobile_Number: mobileNumber },
+                { Member_id: mobileNumber },
+                { member_id: mobileNumber },
             ],
         }).select("Member_id Name username mobileno contactno mobile phone profile_image role status");
 

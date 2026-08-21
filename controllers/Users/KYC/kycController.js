@@ -16,7 +16,8 @@ exports.submitKYC = async (req, res) => {
       checkImage,
       passbookImage,
       rationCardImage,
-      profileImage
+      profileImage,
+      upiId
     } = req.body;
 
     // Find the member by ref_no
@@ -28,13 +29,8 @@ exports.submitKYC = async (req, res) => {
 
     // Validate that all required documents are provided
     const missingDocuments = [];
-    if (!panImage) missingDocuments.push("PAN Image");
-    if (!aadhaarImage) missingDocuments.push("Aadhaar Image");
-    if (!checkImage) missingDocuments.push("Check Image");
-    if (!passbookImage) missingDocuments.push("Passbook Image");
-    if (!rationCardImage) missingDocuments.push("Ration Card Image");
+    if (!panImage && !aadhaarImage) missingDocuments.push("PAN / Aadhaar Image");
     if (!profileImage) missingDocuments.push("Profile Image");
-    if (!aadhar_no) missingDocuments.push("Aadhaar Number");
 
     if (missingDocuments.length > 0) {
       return res.status(400).json({
@@ -130,6 +126,7 @@ exports.submitKYC = async (req, res) => {
     member.aadharcard_no = aadhar_no;
     member.bank_name = bankName;
     member.address = address;
+    member.upi_id = upiId;
     member.kycStatus = "PROCESSING";
 
     // Update document URLs
