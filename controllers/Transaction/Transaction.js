@@ -8,13 +8,18 @@ const getTransactionDetails = async (req, res) => {
     const { status, type } = req.query;
 
     let query = {};
-    
-    if (userRole === "ADMIN") {
-      query = loggedInMemberId ? { member_id: loggedInMemberId } : {};
-    } else if (userRole === "USER") {
-      query = { member_id: loggedInMemberId };
+    if (loggedInMemberId) {
+      const numericPart = parseInt(loggedInMemberId.replace('BMS', ''), 10);
+      const pad5 = String(numericPart).padStart(5, '0');
+      const pad6 = String(numericPart).padStart(6, '0');
+      const possibleIds = [loggedInMemberId, loggedInMemberId.replace('BMS', ''), `BMS${pad5}`, `BMS${pad6}`, pad5, pad6, `BMS${numericPart}`];
+      
+      if (userRole === "ADMIN") {
+        query = { member_id: { $in: possibleIds } };
+      } else if (userRole === "USER") {
+        query = { member_id: { $in: possibleIds } };
+      }
     }
-
     if (status && status !== "all") {
       query.status = status;
     }

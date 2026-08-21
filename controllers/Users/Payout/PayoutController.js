@@ -250,10 +250,17 @@ const getDailyPayout = async (req, res) => {
 
     let query = {};
 
-    if (userRole === "ADMIN") {
-      query = member_id ? { member_id } : {};
-    } else if (userRole === "USER") {
-      query = { member_id: member_id };
+    if (member_id) {
+      const numericPart = parseInt(member_id.replace('BMS', ''), 10);
+      const pad5 = String(numericPart).padStart(5, '0');
+      const pad6 = String(numericPart).padStart(6, '0');
+      const possibleIds = [member_id, member_id.replace('BMS', ''), `BMS${pad5}`, `BMS${pad6}`, pad5, pad6, `BMS${numericPart}`];
+      
+      if (userRole === "ADMIN") {
+        query = { member_id: { $in: possibleIds } };
+      } else if (userRole === "USER") {
+        query = { member_id: { $in: possibleIds } };
+      }
     }
 
     // Filter strictly for Single Level Income payouts as requested

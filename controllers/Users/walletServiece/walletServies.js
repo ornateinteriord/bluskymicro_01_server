@@ -19,7 +19,26 @@ const getWalletOverview = async (req, res) => {
       return res.status(404).json({ success: false, message: "Member not found" });
     }
 
-    const transactions = await TransactionModel.find({ member_id: memberId });
+    const numericPart = parseInt(memberId.replace('BMS', ''), 10);
+    const pad5 = String(numericPart).padStart(5, '0');
+    const pad6 = String(numericPart).padStart(6, '0');
+    
+    const possibleIds = [
+      memberId,
+      memberId.replace('BMS', ''),
+      `BMS${pad5}`,
+      `BMS${pad6}`,
+      pad5,
+      pad6,
+      `BMS${numericPart}`
+    ];
+    
+    console.log("DEBUG: Querying with member_id in:", possibleIds);
+
+    const transactions = await TransactionModel.find({ 
+      member_id: { $in: possibleIds } 
+    });
+    console.log("DEBUG: Found transactions length:", transactions.length);
 
     // === TOP UP WALLET (completely separate) ===
     const topUpTransactions = transactions.filter(tx =>
@@ -191,6 +210,8 @@ const getWalletOverview = async (req, res) => {
         // Fixed Deposit Wallet
         fixedDepositBalance: (member.fixed_deposit_wallet || 0).toFixed(2),
         topUpTransactions: topUpTransactions.sort((a, b) => new Date(b.transaction_date) - new Date(a.transaction_date)),
+        fixedDepositTransactions: transactions.filter(tx => (parseFloat(tx.fd_credit) > 0) || (tx.transaction_type && tx.transaction_type.toLowerCase().includes('fixed deposit'))).sort((a, b) => new Date(b.transaction_date) - new Date(a.transaction_date)),
+        purchaseTransactions: transactions.filter(tx => (parseFloat(tx.pw_credit) > 0) || (tx.transaction_type && tx.transaction_type.toLowerCase().includes('purchase'))).sort((a, b) => new Date(b.transaction_date) - new Date(a.transaction_date)),
         // Loan information (for transparency)
         loanInfo: {
           totalLoanAmount: totalLoanCredits.toFixed(2),
@@ -293,7 +314,11 @@ const getWalletWithdraw = async (req, res) => {
       console.log("Loan taken before last Saturday:", loanDate < lastSaturday, "unpaidNumeric:", unpaidNumeric, "repaidOnOrAfterLastSaturday:", repaidOnOrAfterLastSaturday, "hasUnpaidLoan:", hasUnpaidLoan);
     }
 
-    const allTransactions = await TransactionModel.find({ member_id: memberId });
+    const plainMemberId = memberId.startsWith('BMS') ? memberId.replace('BMS', '') : memberId;
+    const bmsMemberId = `BMS${plainMemberId}`;
+    const allTransactions = await TransactionModel.find({ 
+      member_id: { $in: [memberId, plainMemberId, bmsMemberId] } 
+    });
 
     const nonLoanTransactions = allTransactions.filter(tx =>
       !tx.transaction_type?.toLowerCase().includes('loan') &&
@@ -564,7 +589,14 @@ const sendWithdrawalOTP = async (req, res) => {
       hasUnpaidLoan = loanDate < lastSaturday && unpaidNumeric > 0 && !repaidOnOrAfterLastSaturday;
     }
 
-    const allTransactions = await TransactionModel.find({ member_id: memberId });
+    const numericPart = parseInt(memberId.replace('BMS', ''), 10);
+    const pad5 = String(numericPart).padStart(5, '0');
+    const pad6 = String(numericPart).padStart(6, '0');
+    const possibleIds = [memberId, memberId.replace('BMS', ''), `BMS${pad5}`, `BMS${pad6}`, pad5, pad6, `BMS${numericPart}`];
+    
+    const allTransactions = await TransactionModel.find({ 
+      member_id: { $in: possibleIds } 
+    });
     const nonLoanTransactions = allTransactions.filter(tx =>
       !tx.transaction_type?.toLowerCase().includes('loan') &&
       !tx.description?.toLowerCase().includes('loan') &&
@@ -701,7 +733,14 @@ const sendWithdrawalOTP = async (req, res) => {
     }
 
     let currentBalance = 0;
-    const transactions = await TransactionModel.find({ member_id: memberId });
+    const numericPart = parseInt(memberId.replace('BMS', ''), 10);
+    const pad5 = String(numericPart).padStart(5, '0');
+    const pad6 = String(numericPart).padStart(6, '0');
+    const possibleIds = [memberId, memberId.replace('BMS', ''), `BMS${pad5}`, `BMS${pad6}`, pad5, pad6, `BMS${numericPart}`];
+    
+    const transactions = await TransactionModel.find({ 
+      member_id: { $in: possibleIds } 
+    });
 
     if (fromWallet === "Earnings") {
       const nonLoanTransactions = transactions.filter(tx =>
@@ -979,7 +1018,14 @@ const transferP2PWallet = async (req, res) => {
     }
 
     let currentBalance = 0;
-    const transactions = await TransactionModel.find({ member_id: memberId });
+    const numericPart = parseInt(memberId.replace('BMS', ''), 10);
+    const pad5 = String(numericPart).padStart(5, '0');
+    const pad6 = String(numericPart).padStart(6, '0');
+    const possibleIds = [memberId, memberId.replace('BMS', ''), `BMS${pad5}`, `BMS${pad6}`, pad5, pad6, `BMS${numericPart}`];
+    
+    const transactions = await TransactionModel.find({ 
+      member_id: { $in: possibleIds } 
+    });
 
     if (fromWallet === "Earnings" || fromWallet === "Earnings Wallet") {
       const nonLoanTransactions = transactions.filter(tx =>

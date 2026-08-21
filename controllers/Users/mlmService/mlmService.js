@@ -624,6 +624,9 @@ const distributeROICommission = async (memberId, roiAmount, session = null, cust
   }
 };
 */
+const distributeROICommission = async (memberId, roiAmount, session = null, customDate = null, sourceRef = "Base") => {
+  return [];
+};
 
 module.exports = {
   referralCommissionPercentages,
@@ -636,6 +639,6 @@ module.exports = {
   processCommissions,
   getUplineTree,
   getCommissionSummary,
-  processMemberActivation
-  // distributeROICommission
+  processMemberActivation,
+  distributeROICommission
 };

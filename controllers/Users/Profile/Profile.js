@@ -148,7 +148,7 @@ const activateMemberPackage = async (req, res) => {
       const amtStr = packageType.replace("BMS_", "");
       const amt = Number(amtStr);
       if (!isNaN(amt) && amt > 0) {
-        selectedPackage = { name: "BMS Plan", value: amt };
+        selectedPackage = { name: `PKG-${amt}`, value: amt };
       }
     }
 
@@ -187,7 +187,7 @@ const activateMemberPackage = async (req, res) => {
       { Member_id: memberId },
       {
         status: "active",
-        spackage: "BMS Plan",
+        spackage: selectedPackage.name,
         package_value: amount,
         upgrade_status: "Active", // Activated with package
         Date_of_joining: activationDate,
