@@ -161,7 +161,7 @@ const getWalletOverview = async (req, res) => {
 
     const singleLevelIncomeByPackage = {};
     const sliTransactions = transactions.filter(tx =>
-      (tx.transaction_type === "Single Line Income" || tx.transaction_type === "Single Level Income" || tx.transaction_type === "Single Leg Income") &&
+      (tx.transaction_type === "Single Line Income" || tx.transaction_type === "Single Level Income" || tx.transaction_type === "Single Leg Income" || tx.transaction_type === "Global Income") &&
       tx.status === "Completed"
     );
 
