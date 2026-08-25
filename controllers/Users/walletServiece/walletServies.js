@@ -22,7 +22,7 @@ const getWalletOverview = async (req, res) => {
     const numericPart = parseInt(memberId.replace('BMS', ''), 10);
     const pad5 = String(numericPart).padStart(5, '0');
     const pad6 = String(numericPart).padStart(6, '0');
-    
+
     const possibleIds = [
       memberId,
       memberId.replace('BMS', ''),
@@ -32,13 +32,12 @@ const getWalletOverview = async (req, res) => {
       pad6,
       `BMS${numericPart}`
     ];
-    
-    console.log("DEBUG: Querying with member_id in:", possibleIds);
 
-    const transactions = await TransactionModel.find({ 
-      member_id: { $in: possibleIds } 
+
+
+    const transactions = await TransactionModel.find({
+      member_id: { $in: possibleIds }
     });
-    console.log("DEBUG: Found transactions length:", transactions.length);
 
     // === TOP UP WALLET (completely separate) ===
     const topUpTransactions = transactions.filter(tx =>
@@ -316,8 +315,8 @@ const getWalletWithdraw = async (req, res) => {
 
     const plainMemberId = memberId.startsWith('BMS') ? memberId.replace('BMS', '') : memberId;
     const bmsMemberId = `BMS${plainMemberId}`;
-    const allTransactions = await TransactionModel.find({ 
-      member_id: { $in: [memberId, plainMemberId, bmsMemberId] } 
+    const allTransactions = await TransactionModel.find({
+      member_id: { $in: [memberId, plainMemberId, bmsMemberId] }
     });
 
     const nonLoanTransactions = allTransactions.filter(tx =>
@@ -593,9 +592,9 @@ const sendWithdrawalOTP = async (req, res) => {
     const pad5 = String(numericPart).padStart(5, '0');
     const pad6 = String(numericPart).padStart(6, '0');
     const possibleIds = [memberId, memberId.replace('BMS', ''), `BMS${pad5}`, `BMS${pad6}`, pad5, pad6, `BMS${numericPart}`];
-    
-    const allTransactions = await TransactionModel.find({ 
-      member_id: { $in: possibleIds } 
+
+    const allTransactions = await TransactionModel.find({
+      member_id: { $in: possibleIds }
     });
     const nonLoanTransactions = allTransactions.filter(tx =>
       !tx.transaction_type?.toLowerCase().includes('loan') &&
@@ -737,9 +736,9 @@ const sendWithdrawalOTP = async (req, res) => {
     const pad5 = String(numericPart).padStart(5, '0');
     const pad6 = String(numericPart).padStart(6, '0');
     const possibleIds = [memberId, memberId.replace('BMS', ''), `BMS${pad5}`, `BMS${pad6}`, pad5, pad6, `BMS${numericPart}`];
-    
-    const transactions = await TransactionModel.find({ 
-      member_id: { $in: possibleIds } 
+
+    const transactions = await TransactionModel.find({
+      member_id: { $in: possibleIds }
     });
 
     if (fromWallet === "Earnings") {
@@ -884,7 +883,7 @@ const sendWithdrawalOTP = async (req, res) => {
         transaction_date: new Date(),
         member_id: memberId,
         description: `Wallet Transfer: Upgrade to Purchase Wallet`,
-        transaction_type: "Top up", 
+        transaction_type: "Top up",
         ew_credit: 0,
         ew_debit: 0,
         uw_credit: 0,
@@ -1022,9 +1021,9 @@ const transferP2PWallet = async (req, res) => {
     const pad5 = String(numericPart).padStart(5, '0');
     const pad6 = String(numericPart).padStart(6, '0');
     const possibleIds = [memberId, memberId.replace('BMS', ''), `BMS${pad5}`, `BMS${pad6}`, pad5, pad6, `BMS${numericPart}`];
-    
-    const transactions = await TransactionModel.find({ 
-      member_id: { $in: possibleIds } 
+
+    const transactions = await TransactionModel.find({
+      member_id: { $in: possibleIds }
     });
 
     if (fromWallet === "Earnings" || fromWallet === "Earnings Wallet") {
