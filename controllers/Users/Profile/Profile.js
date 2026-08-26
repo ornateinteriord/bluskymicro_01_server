@@ -213,13 +213,7 @@ const activateMemberPackage = async (req, res) => {
     });
     await newAddOn.save();
 
-    // --- NEW: Global Income (Autopool) Distribution ---
-    try {
-      const { distributeGlobalIncome } = require("../../Packages/globalIncomeService");
-      await distributeGlobalIncome(memberId, amount);
-    } catch (globalIncomeErr) {
-      console.error("Global income distribution failed in activation:", globalIncomeErr);
-    }
+
 
     // 3. ✅ CREATE "DAY 0" PAYOUT AND TRANSACTION (₹0 records)
     const payoutId = Date.now() + Math.floor(Math.random() * 1000);

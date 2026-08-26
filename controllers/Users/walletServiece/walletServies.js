@@ -137,13 +137,6 @@ const getWalletOverview = async (req, res) => {
       )
       .reduce((acc, tx) => acc + (parseFloat(tx.gross_amount) || parseFloat(tx.net_amount) || parseFloat(tx.ew_credit) || 0), 0);
 
-    const globalIncome = nonLoanTransactions
-      .filter(tx =>
-        tx.transaction_type === "Global Income" &&
-        tx.status === "Completed"
-      )
-      .reduce((acc, tx) => acc + (parseFloat(tx.gross_amount) || parseFloat(tx.net_amount) || parseFloat(tx.ew_credit) || 0), 0);
-
 
     // Calculate loan amounts separately (for information only)
     const loanTransactions = transactions.filter(tx =>
@@ -160,7 +153,7 @@ const getWalletOverview = async (req, res) => {
 
     const singleLevelIncomeByPackage = {};
     const sliTransactions = transactions.filter(tx =>
-      (tx.transaction_type === "Single Line Income" || tx.transaction_type === "Single Level Income" || tx.transaction_type === "Single Leg Income" || tx.transaction_type === "Global Income") &&
+      (tx.transaction_type === "Single Line Income" || tx.transaction_type === "Single Level Income" || tx.transaction_type === "Single Leg Income") &&
       tx.status === "Completed"
     );
 
@@ -192,10 +185,10 @@ const getWalletOverview = async (req, res) => {
         directBenefits: directBenefits.toFixed(2),
         repaymentCommission: repaymentCommission.toFixed(2),
         singleLineIncome: singleLineIncome.toFixed(2),
-        globalIncome: globalIncome.toFixed(2),
+
         singleLevelIncomeByPackage: singleLevelIncomeByPackage,
         totalAddonAmount: totalAddonAmount.toFixed(2),
-        totalBenefits: (levelBenefits + roiLevelBenefits + directBenefits + repaymentCommission + roiBenefits + singleLineIncome + globalIncome).toFixed(2),
+        totalBenefits: (levelBenefits + roiLevelBenefits + directBenefits + repaymentCommission + roiBenefits + singleLineIncome).toFixed(2),
         pendingWithdrawals: pendingWithdrawals.toFixed(2),
         primaryPackage: member.package_value || 0,
         addOnPackages: totalAddonAmount,

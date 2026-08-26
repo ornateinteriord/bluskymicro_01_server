@@ -96,13 +96,7 @@ const processAutoUpgrades = async () => {
       });
       await newAddOn.save();
 
-      // --- NEW: Global Income (Autopool) Distribution ---
-      try {
-        const { distributeGlobalIncome } = require("./globalIncomeService");
-        await distributeGlobalIncome(finalTargetId, requested_amount);
-      } catch (globalIncomeErr) {
-        console.error("Global income distribution failed in auto upgrade:", globalIncomeErr);
-      }
+
 
       // 4. Single Leg Income Logic
       const singleLineIncomeAmount = Number((requested_amount * 0.01).toFixed(2));
