@@ -24,19 +24,19 @@ const getEpinsSummary = async (req, res) => {
         const activeEpins = await EpinModel.aggregate([
             { $match: { status: "active" } },
             { $group: { _id: "$purchasedby", count: { $sum: 1 } } },
-            { $project: { memberCode: "₹_id", usedQuantity: "$count", status: "active", _id: 0 } }
+            { $project: { memberCode: "$_id", usedQuantity: "$count", status: "active", _id: 0 } }
         ]);
 
         const usedEpins = await EpinModel.aggregate([
             { $match: { status: "used" } },
             { $group: { _id: "$purchasedby", count: { $sum: 1 } } },
-            { $project: { memberCode: "₹_id", usedQuantity: "$count", status: "used", _id: 0 } }
+            { $project: { memberCode: "$_id", usedQuantity: "$count", status: "used", _id: 0 } }
         ]);
         const totalEpins = await EpinModel.aggregate([
             { $group: { _id: { purchasedby: "$purchasedby", date: "$date" }, count: { $sum: 1 } } },
             { $project: {
-                memberCode: "₹_id.purchasedby",
-                date: "₹_id.date", totalQuantity: "$count", _id: 0
+                memberCode: "$_id.purchasedby",
+                date: "$_id.date", totalQuantity: "$count", _id: 0
             }
             }
         ]);
@@ -143,16 +143,16 @@ const getPackageHistory = async (req, res) => {
 {
                 $project: {
         _id: 0,
-            date: "₹_id.transfered_on",
+            date: "$_id.transfered_on",
                 transfered_to: {
                         $cond: {
                 if: { $eq: ["$transfered_to_name", null] },
-                then: { $concat: ["(", "₹_id.transfered_to", ")"] },
-                            else: { $concat: ["$transfered_to_name", " ( ", "₹_id.transfered_to", " )"] }
+                then: { $concat: ["(", "$_id.transfered_to", ")"] },
+                            else: { $concat: ["$transfered_to_name", " ( ", "$_id.transfered_to", " )"] }
             }
         },
         quantity: "$quantity",
-            package: { $concat: ["₹_id.spackage", " - ", { $toString: "$amount" }] }
+            package: { $concat: ["$_id.spackage", " - ", { $toString: "$amount" }] }
     }
 },
 { $sort: { date: -1 } }
@@ -228,7 +228,7 @@ const formatAmount = (num) => {
         maximumFractionDigits: 1
     }).format(num);
     if (!formatted.includes(".")) {
-        formatted = formatted.replace(/(\d+)/, "₹1.0");
+        formatted = formatted.replace(/(\d+)/, "$1.0");
     }
     return formatted;
 };

@@ -60,7 +60,7 @@ const getDashboardCounts = async (req, res) => {
 {
                 $project: {
         _id: 0,
-            account_type: "₹_id",
+            account_type: "$_id",
                 account_group_name: "$groupInfo.account_group_name",
                     count: 1
     }

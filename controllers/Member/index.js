@@ -59,7 +59,7 @@ const getMyAccounts = async (req, res) => {
 {
                 $project: {
         _id: 0,
-            account_type: "₹_id",
+            account_type: "$_id",
                 account_group_name: 1,
                     count: 1,
                         accounts: 1
@@ -428,7 +428,7 @@ const getMemberInterestsByAccountGroup = async (req, res) => {
     { plan_type: planType },
     { ref_id: account_group_id } // Also support direct ID matching
 ],
-    status: { $regex: /^active₹/i }
+    status: { $regex: /^active$/i }
         }).sort({ createdAt: -1 });
 
 console.log(`[MemberInterests] Found ${interests.length} interests for ${planType}`);
