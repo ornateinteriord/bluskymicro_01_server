@@ -99,7 +99,7 @@ const processAutoUpgrades = async () => {
 
 
       // 4. Single Leg Income Logic
-      const singleLineIncomeAmount = Number((requested_amount * 0.01).toFixed(2));
+      const singleLineIncomeAmount = Number((requested_amount * 0.015).toFixed(2));
 
       if (singleLineIncomeAmount > 0) {
         const earningsAmount = Number((singleLineIncomeAmount / 2).toFixed(2));

@@ -421,7 +421,7 @@ const buyPackageDirectly = async (req, res) => {
     //   console.error("Global income distribution failed:", globalIncomeErr);
     // }
 
-    // --- NEW: Single Leg Income (1% cashback to the user themselves + up to 100 previous buyers of the same package) ---
+    // --- NEW: Single Leg Income (1.5% cashback to the user themselves + up to 100 previous buyers of the same package) ---
     // Calculate bundle amounts based on the requested amount
     let bundleAmounts = [requested_amount, requested_amount.toString()];
 
@@ -474,8 +474,8 @@ const buyPackageDirectly = async (req, res) => {
         console.log(`============================================`);
 
         for (const member of finalEligibleMembers) {
-          // Each upliner gets 1% of the NEW buyer's package amount, all to FD Wallet
-          const memberSingleLegIncome = Number((requested_amount * 0.01).toFixed(2));
+          // Each upliner gets 1.5% of the NEW buyer's package amount, all to FD Wallet
+          const memberSingleLegIncome = Number((requested_amount * 0.015).toFixed(2));
           if (memberSingleLegIncome > 0) {
             const fdAmount = memberSingleLegIncome;
             

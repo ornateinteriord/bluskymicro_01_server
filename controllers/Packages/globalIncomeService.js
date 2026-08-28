@@ -3,7 +3,7 @@ const MemberModel = require("../../models/Users/Member");
 const TransactionModel = require("../../models/Transaction/Transaction");
 
 /**
- * Handles adding a member to the Global Income queue (Bundles) and distributing 1% payouts
+ * Handles adding a member to the Global Income queue (Bundles) and distributing 1.5% payouts
  * to the previous 100 members in the same bundle.
  * 
  * @param {string} memberId - The ID of the member who just bought the package.
@@ -58,7 +58,7 @@ const distributeGlobalIncome = async (memberId, packageAmount) => {
 
     console.log(`[GlobalIncome] Member ${memberId} added to queue for ₹${amount} in ${bundleName} at index ${newQueueIndex}`);
 
-    // Distribute 1% to the 100 immediately preceding users in the SAME bundle.
+    // Distribute 1.5% to the 100 immediately preceding users in the SAME bundle.
     // This loops from newQueueIndex - 1 down to newQueueIndex - 100.
     const startTarget = Math.max(1, newQueueIndex - 100);
     const endTarget = newQueueIndex - 1;
@@ -75,8 +75,8 @@ const distributeGlobalIncome = async (memberId, packageAmount) => {
       if (beneficiaryEntry && beneficiaryEntry.member_id) {
         const beneficiaryId = beneficiaryEntry.member_id;
         
-        // Payout is exactly 1% of the NEW buyer's package amount.
-        const payoutAmount = Number((amount * 0.01).toFixed(2));
+        // Payout is exactly 1.5% of the NEW buyer's package amount.
+        const payoutAmount = Number((amount * 0.015).toFixed(2));
 
         // Add 100% of the payout balance strictly to their FD wallet
         await MemberModel.findOneAndUpdate(
