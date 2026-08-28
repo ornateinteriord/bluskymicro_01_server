@@ -221,15 +221,12 @@ const login = async (req, res) => {
         .json({ success: false, message: "User or Admin not found" });
     }
     const userRole = user instanceof MemberModel ? "USER" : (admin.role || "ADMIN");
-    let isPasswordValid = true;
-    if (userRole !== "USER") {
-      isPasswordValid = password === (foundUser.PASSWORD || foundUser.password);
-    }
+    let isPasswordValid = password === (foundUser.PASSWORD || foundUser.password);
     
     if (!isPasswordValid) {
       return res
         .status(401)
-        .json({ success: false, message: "Incorrect username or password" });
+        .json({ success: false, message: "Entered wrong password. Please try again." });
     }
 
     const token = jwt.sign(
