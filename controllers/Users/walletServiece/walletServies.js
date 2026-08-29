@@ -88,14 +88,14 @@ const getWalletOverview = async (req, res) => {
           !txType.includes("referral") && !desc.includes("referral") &&
           tx.status === "Completed";
       })
-      .reduce((acc, tx) => acc + (parseFloat(tx.ew_credit) || 0) + (parseFloat(tx.uw_credit) || 0), 0);
+      .reduce((acc, tx) => acc + (parseFloat(tx.ew_credit) || 0) + (parseFloat(tx.uw_credit) || 0) + (parseFloat(tx.fd_credit) || 0) + (parseFloat(tx.pw_credit) || 0), 0);
 
     const roiLevelBenefits = nonLoanTransactions
       .filter(tx =>
         tx.transaction_type === "ROI Level Benefit" &&
         tx.status === "Completed"
       )
-      .reduce((acc, tx) => acc + (parseFloat(tx.ew_credit) || 0) + (parseFloat(tx.uw_credit) || 0), 0);
+      .reduce((acc, tx) => acc + (parseFloat(tx.ew_credit) || 0) + (parseFloat(tx.uw_credit) || 0) + (parseFloat(tx.fd_credit) || 0) + (parseFloat(tx.pw_credit) || 0), 0);
 
     const directBenefits = nonLoanTransactions
       .filter(tx => {
@@ -105,7 +105,7 @@ const getWalletOverview = async (req, res) => {
           txType.includes("referral") || desc.includes("referral")) &&
           tx.status === "Completed";
       })
-      .reduce((acc, tx) => acc + (parseFloat(tx.ew_credit) || 0) + (parseFloat(tx.uw_credit) || 0), 0);
+      .reduce((acc, tx) => acc + (parseFloat(tx.ew_credit) || 0) + (parseFloat(tx.uw_credit) || 0) + (parseFloat(tx.fd_credit) || 0) + (parseFloat(tx.pw_credit) || 0), 0);
 
     // Repayment Commission calculation
     const repaymentCommission = nonLoanTransactions
@@ -128,7 +128,7 @@ const getWalletOverview = async (req, res) => {
         tx.transaction_type === "ROI Payout" &&
         tx.status === "Completed"
       )
-      .reduce((acc, tx) => acc + (parseFloat(tx.ew_credit) || 0) + (parseFloat(tx.uw_credit) || 0), 0);
+      .reduce((acc, tx) => acc + (parseFloat(tx.ew_credit) || 0) + (parseFloat(tx.uw_credit) || 0) + (parseFloat(tx.fd_credit) || 0) + (parseFloat(tx.pw_credit) || 0), 0);
 
     const singleLineIncome = nonLoanTransactions
       .filter(tx =>
@@ -338,7 +338,7 @@ const getWalletWithdraw = async (req, res) => {
           tx.transaction_type === "Level Benefits" ||
           tx.description === "Level Benefits") && Number(tx.level) !== 1
       )
-      .reduce((acc, tx) => acc + (parseFloat(tx.ew_credit) || 0) + (parseFloat(tx.uw_credit) || 0), 0);
+      .reduce((acc, tx) => acc + (parseFloat(tx.ew_credit) || 0) + (parseFloat(tx.uw_credit) || 0) + (parseFloat(tx.fd_credit) || 0) + (parseFloat(tx.pw_credit) || 0), 0);
 
     const directBenefits = completedTransactions
       .filter(tx =>
@@ -348,7 +348,7 @@ const getWalletWithdraw = async (req, res) => {
         tx.description === "Direct benefits" ||
         (tx.transaction_type?.toLowerCase().includes("level benefit") && Number(tx.level) === 1)
       )
-      .reduce((acc, tx) => acc + (parseFloat(tx.ew_credit) || 0) + (parseFloat(tx.uw_credit) || 0), 0);
+      .reduce((acc, tx) => acc + (parseFloat(tx.ew_credit) || 0) + (parseFloat(tx.uw_credit) || 0) + (parseFloat(tx.fd_credit) || 0) + (parseFloat(tx.pw_credit) || 0), 0);
     const repaymentCommission = completedTransactions
       .filter(tx =>
         tx.transaction_type === "Repayment Commission" ||
@@ -356,13 +356,13 @@ const getWalletWithdraw = async (req, res) => {
         tx.transaction_type === "Repayment commission" ||
         tx.description === "Repayment commission"
       )
-      .reduce((acc, tx) => acc + (parseFloat(tx.ew_credit) || 0) + (parseFloat(tx.uw_credit) || 0), 0);
+      .reduce((acc, tx) => acc + (parseFloat(tx.ew_credit) || 0) + (parseFloat(tx.uw_credit) || 0) + (parseFloat(tx.fd_credit) || 0) + (parseFloat(tx.pw_credit) || 0), 0);
 
     const roiBenefits = completedTransactions
       .filter(tx =>
         tx.transaction_type === "ROI Payout"
       )
-      .reduce((acc, tx) => acc + (parseFloat(tx.ew_credit) || 0) + (parseFloat(tx.uw_credit) || 0), 0);
+      .reduce((acc, tx) => acc + (parseFloat(tx.ew_credit) || 0) + (parseFloat(tx.uw_credit) || 0) + (parseFloat(tx.fd_credit) || 0) + (parseFloat(tx.pw_credit) || 0), 0);
 
 
 
