@@ -6,8 +6,8 @@ const CommissionModel = require("../../../models/commission.model");
 const referralCommissionPercentages = {
   1: 20,
   2: 3,
-  3: 1,
-  4: 0.5,
+  3: 2,
+  4: 1,
   5: 0.5,
   6: 0.5,
   7: 0.5,
@@ -19,8 +19,8 @@ const referralCommissionPercentages = {
 const levelBenefitsPercentages = {
   1: 20,
   2: 3,
-  3: 1,
-  4: 0.5,
+  3: 2,
+  4: 1,
   5: 0.5,
   6: 0.5,
   7: 0.5,
@@ -297,25 +297,11 @@ const createLevelBenefitsTransaction = async (transactionData, session = null) =
     // Use a unique compound ID to ensure consistency and speed in high-concurrency 
     const newTransactionId = `T-L-${payout_id}-${Math.floor(Math.random() * 1000)}`;
 
-    // Split the commission into 4 distinct wallets based on level
-    let fdAmount = 0;
-    let withdrawalAmount = 0;
-    let purchaseAmount = 0;
-    let upgradeAmount = 0;
-
-    if (level <= 3) {
-      // Level 1, 2, 3
-      fdAmount = Number((amount * 0.20).toFixed(2));
-      withdrawalAmount = Number((amount * 0.50).toFixed(2));
-      purchaseAmount = Number((amount * 0.10).toFixed(2));
-      upgradeAmount = Number((amount * 0.20).toFixed(2));
-    } else {
-      // Level 4 to 10
-      fdAmount = Number((amount * 0.50).toFixed(2));
-      withdrawalAmount = Number((amount * 0.20).toFixed(2));
-      purchaseAmount = Number((amount * 0.10).toFixed(2));
-      upgradeAmount = Number((amount * 0.20).toFixed(2));
-    }
+    // Split the commission into 4 distinct wallets based on global rule (50% FD, 20% Withdrawal, 10% Purchase, 20% Upgrade)
+    const fdAmount = Number((amount * 0.50).toFixed(2));
+    const withdrawalAmount = Number((amount * 0.20).toFixed(2));
+    const purchaseAmount = Number((amount * 0.10).toFixed(2));
+    const upgradeAmount = Number((amount * 0.20).toFixed(2));
 
     const transaction = new TransactionModel({
       transaction_id: newTransactionId,

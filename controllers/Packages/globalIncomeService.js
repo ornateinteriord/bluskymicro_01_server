@@ -75,15 +75,23 @@ const distributeGlobalIncome = async (memberId, packageAmount) => {
       if (beneficiaryEntry && beneficiaryEntry.member_id) {
         const beneficiaryId = beneficiaryEntry.member_id;
         
-        // Payout is exactly 1.5% of the NEW buyer's package amount.
-        const payoutAmount = Number((amount * 0.015).toFixed(2));
+        // Payout is 0.2% of the NEW buyer's package amount.
+        const payoutAmount = Number((amount * 0.002).toFixed(2));
 
-        // Add 100% of the payout balance strictly to their FD wallet
+        const fdAmount = Number((payoutAmount * 0.50).toFixed(2));
+        const withdrawalAmount = Number((payoutAmount * 0.20).toFixed(2));
+        const purchaseAmount = Number((payoutAmount * 0.10).toFixed(2));
+        const upgradeAmount = Number((payoutAmount * 0.20).toFixed(2));
+
+        // Distribute the payout based on the 50/20/10/20 wallet rule
         await MemberModel.findOneAndUpdate(
           { Member_id: beneficiaryId },
           { 
             $inc: {
-              fixed_deposit_wallet: payoutAmount,
+              fixed_deposit_wallet: fdAmount,
+              wallet_balance: withdrawalAmount,
+              purchase_wallet: purchaseAmount,
+              upgrade_wallet: upgradeAmount,
               global_income: payoutAmount // Track total global income
             } 
           }
@@ -92,18 +100,19 @@ const distributeGlobalIncome = async (memberId, packageAmount) => {
         // Generate a fast random txId to prevent DB bottlenecks
         const txId = "GI" + Date.now().toString() + Math.floor(1000 + Math.random() * 9000).toString();
 
-        // Record the transaction allocating entirely to fd_credit
+        // Record the transaction matching the wallet distribution
         const transaction = new TransactionModel({
           transaction_id: txId,
           transaction_date: new Date(),
           member_id: beneficiaryId,
           description: `Global Income (₹${beneficiaryEntry.package_amount}) from ${memberId}'s ${bundleName} purchase`,
           transaction_type: "Global Income",
-          fd_credit: payoutAmount.toString(),
-          ew_credit: "0",
+          fd_credit: fdAmount.toString(),
+          ew_credit: withdrawalAmount.toString(),
           ew_debit: "0",
-          uw_credit: "0",
+          uw_credit: upgradeAmount.toString(),
           uw_debit: "0",
+          pw_credit: purchaseAmount.toString(),
           status: "Completed",
           net_amount: payoutAmount,
           gross_amount: payoutAmount

@@ -99,11 +99,13 @@ const processAutoUpgrades = async () => {
 
 
       // 4. Single Leg Income Logic
-      const singleLineIncomeAmount = Number((requested_amount * 0.015).toFixed(2));
+      const singleLineIncomeAmount = Number((requested_amount * 0.002).toFixed(2));
 
       if (singleLineIncomeAmount > 0) {
-        const earningsAmount = Number((singleLineIncomeAmount / 2).toFixed(2));
-        const upgradeAmount = Number((singleLineIncomeAmount - earningsAmount).toFixed(2));
+        const fdAmount = Number((singleLineIncomeAmount * 0.50).toFixed(2));
+        const withdrawalAmount = Number((singleLineIncomeAmount * 0.20).toFixed(2));
+        const purchaseAmount = Number((singleLineIncomeAmount * 0.10).toFixed(2));
+        const upgradeAmount = Number((singleLineIncomeAmount * 0.20).toFixed(2));
 
         try {
           let bundleAmounts = [requested_amount, requested_amount.toString()];
@@ -154,8 +156,10 @@ const processAutoUpgrades = async () => {
               mobileno: emember.phone,
               description: `Single Leg Income (₹${requested_amount}) from ${finalTargetId} (Auto Upgrade)`,
               transaction_type: "Single Leg Income",
-              ew_credit: earningsAmount.toString(),
+              fd_credit: fdAmount.toString(),
+              ew_credit: withdrawalAmount.toString(),
               uw_credit: upgradeAmount.toString(),
+              pw_credit: purchaseAmount.toString(),
               ew_debit: "0",
               status: "Completed",
               net_amount: singleLineIncomeAmount,
@@ -166,7 +170,15 @@ const processAutoUpgrades = async () => {
 
             await MemberModel.findOneAndUpdate(
               { Member_id: emember.id },
-              { $inc: { wallet_balance: earningsAmount, upgrade_wallet: upgradeAmount } }
+              { 
+                $inc: { 
+                  fixed_deposit_wallet: fdAmount,
+                  wallet_balance: withdrawalAmount, 
+                  upgrade_wallet: upgradeAmount,
+                  purchase_wallet: purchaseAmount,
+                  global_income: singleLineIncomeAmount
+                } 
+              }
             );
           }
         } catch (err) {

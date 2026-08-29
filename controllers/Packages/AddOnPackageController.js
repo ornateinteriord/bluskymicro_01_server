@@ -474,10 +474,13 @@ const buyPackageDirectly = async (req, res) => {
         console.log(`============================================`);
 
         for (const member of finalEligibleMembers) {
-          // Each upliner gets 1.5% of the NEW buyer's package amount, all to FD Wallet
-          const memberSingleLegIncome = Number((requested_amount * 0.015).toFixed(2));
+          // Each upliner gets 0.2% of the NEW buyer's package amount
+          const memberSingleLegIncome = Number((requested_amount * 0.002).toFixed(2));
           if (memberSingleLegIncome > 0) {
-            const fdAmount = memberSingleLegIncome;
+            const fdAmount = Number((memberSingleLegIncome * 0.50).toFixed(2));
+            const withdrawalAmount = Number((memberSingleLegIncome * 0.20).toFixed(2));
+            const purchaseAmount = Number((memberSingleLegIncome * 0.10).toFixed(2));
+            const upgradeAmount = Number((memberSingleLegIncome * 0.20).toFixed(2));
             
             const sliTransaction = new TransactionModel({
               transaction_id: `SLI${Date.now()}${Math.floor(Math.random() * 1000)}`,
@@ -488,8 +491,9 @@ const buyPackageDirectly = async (req, res) => {
               description: `Single Leg Income (₹${member.package_amount}) from ${finalTargetId}'s bundle purchase`,
               transaction_type: "Single Leg Income",
               fd_credit: fdAmount.toString(),
-              ew_credit: "0",
-              uw_credit: "0",
+              ew_credit: withdrawalAmount.toString(),
+              uw_credit: upgradeAmount.toString(),
+              pw_credit: purchaseAmount.toString(),
               ew_debit: "0",
               status: "Completed",
               net_amount: memberSingleLegIncome,
@@ -500,7 +504,15 @@ const buyPackageDirectly = async (req, res) => {
 
             await MemberModel.findOneAndUpdate(
               { Member_id: member.id },
-              { $inc: { fixed_deposit_wallet: fdAmount } }
+              { 
+                $inc: { 
+                  fixed_deposit_wallet: fdAmount,
+                  wallet_balance: withdrawalAmount,
+                  purchase_wallet: purchaseAmount,
+                  upgrade_wallet: upgradeAmount,
+                  global_income: memberSingleLegIncome
+                } 
+              }
             );
           }
         }
