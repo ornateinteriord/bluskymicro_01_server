@@ -29,6 +29,7 @@ const levelBenefitsPercentages = {
   10: 0.5
 };
 
+/*
 const roiCommissionPercentages = {
   1: 20,
   2: 3,
@@ -41,6 +42,7 @@ const roiCommissionPercentages = {
   9: 1,
   10: 1
 };
+*/
 
 const getOrdinal = (number) => {
   const suffixes = ["th", "st", "nd", "rd"];
@@ -421,7 +423,7 @@ const getCommissionSummary = () => {
   return {
     total_levels: 10,
     referral_rates: referralCommissionPercentages,
-    roi_rates: roiCommissionPercentages,
+    // roi_rates: roiCommissionPercentages, // Disabled as per user request (NO ROI)
     condition: "Commissions only for sponsors with 'active' status"
   };
 };
@@ -616,7 +618,7 @@ const distributeROICommission = async (memberId, roiAmount, session = null, cust
 
 module.exports = {
   referralCommissionPercentages,
-  roiCommissionPercentages,
+  // roiCommissionPercentages, // Disabled as per user request
   getOrdinal,
   findUplineSponsors,
   createLevelBenefitsTransaction,
