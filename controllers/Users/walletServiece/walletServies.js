@@ -238,6 +238,15 @@ const getWalletWithdraw = async (req, res) => {
       return res.status(400).json({ success: false, message: "Invalid withdrawal amount" });
     }
 
+    const currentDay = new Date().getDay();
+    if (currentDay === 0 || currentDay === 6) {
+      return res.status(400).json({ success: false, message: "Withdrawals are only allowed from Monday to Friday" });
+    }
+
+    if (withdrawalAmount < 500) {
+      return res.status(400).json({ success: false, message: "Minimum withdrawal amount is ₹500" });
+    }
+
     const member = await MemberModel.findOne({ Member_id: memberId });
     if (!member) return res.status(404).json({ success: false, message: "Member not found" });
 
@@ -370,6 +379,8 @@ const getWalletWithdraw = async (req, res) => {
     const totalAddonAmount = addonPackages.reduce((acc, pkg) => acc + (pkg.amount || 0), 0);
     const totalPackages = (member.package_value || 0) + totalAddonAmount;
     const maxWithdrawal = totalPackages * 0.25;
+
+
 
     if (withdrawalAmount < 500) {
       return res.status(400).json({
@@ -548,6 +559,11 @@ const sendWithdrawalOTP = async (req, res) => {
       return res.status(400).json({ success: false, message: "Invalid withdrawal amount" });
     }
 
+    const currentDay = new Date().getDay();
+    if (currentDay === 0 || currentDay === 6) {
+      return res.status(400).json({ success: false, message: "Withdrawals are only allowed from Monday to Friday" });
+    }
+
     const member = await MemberModel.findOne({ Member_id: memberId });
     if (!member) return res.status(404).json({ success: false, message: "Member not found" });
 
@@ -609,8 +625,8 @@ const sendWithdrawalOTP = async (req, res) => {
     const totalPackages = (member.package_value || 0) + totalAddonAmount;
     const maxWithdrawal = totalPackages * 0.25;
 
-    if (withdrawalAmount < 5) {
-      return res.status(400).json({ success: false, message: "Minimum withdrawal amount is ₹5" });
+    if (withdrawalAmount < 500) {
+      return res.status(400).json({ success: false, message: "Minimum withdrawal amount is ₹500" });
     }
 
     if (withdrawalAmount > maxWithdrawal) {

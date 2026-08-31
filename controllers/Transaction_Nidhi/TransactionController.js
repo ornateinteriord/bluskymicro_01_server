@@ -897,6 +897,21 @@ exports.requestWithdraw = async (req, res) => {
             });
         }
 
+        const currentDay = new Date().getDay();
+        if (currentDay === 0 || currentDay === 6) {
+            return res.status(400).json({
+                success: false,
+                message: "Withdrawals are only allowed from Monday to Friday"
+            });
+        }
+
+        if (amount < 500) {
+            return res.status(400).json({
+                success: false,
+                message: "Minimum withdrawal amount is ₹500"
+            });
+        }
+
         // Validate member exists and is active
         const allMembers = await MemberModel.find({});
         const member = allMembers.find(m => m.member_id === member_id || m.member_id === parseInt(member_id));
