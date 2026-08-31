@@ -299,10 +299,10 @@ const createLevelBenefitsTransaction = async (transactionData, session = null) =
     // Use a unique compound ID to ensure consistency and speed in high-concurrency 
     const newTransactionId = `T-L-${payout_id}-${Math.floor(Math.random() * 1000)}`;
 
-    // Split the commission into 4 distinct wallets based on global rule (50% FD, 20% Withdrawal, 10% Purchase, 20% Upgrade)
+    // Split the commission into 4 distinct wallets based on global rule (50% FD, 10% Withdrawal, 20% Purchase, 20% Upgrade)
     const fdAmount = Number((amount * 0.50).toFixed(2));
-    const withdrawalAmount = Number((amount * 0.20).toFixed(2));
-    const purchaseAmount = Number((amount * 0.10).toFixed(2));
+    const withdrawalAmount = Number((amount * 0.10).toFixed(2));
+    const purchaseAmount = Number((amount * 0.20).toFixed(2));
     const upgradeAmount = Number((amount * 0.20).toFixed(2));
 
     const transaction = new TransactionModel({

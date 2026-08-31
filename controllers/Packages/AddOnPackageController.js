@@ -478,8 +478,8 @@ const buyPackageDirectly = async (req, res) => {
           const memberSingleLegIncome = Number((requested_amount * 0.002).toFixed(2));
           if (memberSingleLegIncome > 0) {
             const fdAmount = Number((memberSingleLegIncome * 0.50).toFixed(2));
-            const withdrawalAmount = Number((memberSingleLegIncome * 0.20).toFixed(2));
-            const purchaseAmount = Number((memberSingleLegIncome * 0.10).toFixed(2));
+            const withdrawalAmount = Number((memberSingleLegIncome * 0.10).toFixed(2));
+            const purchaseAmount = Number((memberSingleLegIncome * 0.20).toFixed(2));
             const upgradeAmount = Number((memberSingleLegIncome * 0.20).toFixed(2));
             
             const sliTransaction = new TransactionModel({

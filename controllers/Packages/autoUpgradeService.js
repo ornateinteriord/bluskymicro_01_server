@@ -103,8 +103,8 @@ const processAutoUpgrades = async () => {
 
       if (singleLineIncomeAmount > 0) {
         const fdAmount = Number((singleLineIncomeAmount * 0.50).toFixed(2));
-        const withdrawalAmount = Number((singleLineIncomeAmount * 0.20).toFixed(2));
-        const purchaseAmount = Number((singleLineIncomeAmount * 0.10).toFixed(2));
+        const withdrawalAmount = Number((singleLineIncomeAmount * 0.10).toFixed(2));
+        const purchaseAmount = Number((singleLineIncomeAmount * 0.20).toFixed(2));
         const upgradeAmount = Number((singleLineIncomeAmount * 0.20).toFixed(2));
 
         try {

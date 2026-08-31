@@ -79,8 +79,8 @@ const distributeGlobalIncome = async (memberId, packageAmount) => {
         const payoutAmount = Number((amount * 0.002).toFixed(2));
 
         const fdAmount = Number((payoutAmount * 0.50).toFixed(2));
-        const withdrawalAmount = Number((payoutAmount * 0.20).toFixed(2));
-        const purchaseAmount = Number((payoutAmount * 0.10).toFixed(2));
+        const withdrawalAmount = Number((payoutAmount * 0.10).toFixed(2));
+        const purchaseAmount = Number((payoutAmount * 0.20).toFixed(2));
         const upgradeAmount = Number((payoutAmount * 0.20).toFixed(2));
 
         // Distribute the payout based on the 50/20/10/20 wallet rule
