@@ -140,12 +140,12 @@ const activateMemberPackage = async (req, res) => {
       return res.status(404).json({ success: false, message: "Member not found" });
     }
 
-    // Dynamically accept any BMS Plan amount or "NONE"
+    // Dynamically accept any Ecash / BMS Plan amount or "NONE"
     let selectedPackage = null;
     if (packageType === "NONE") {
       selectedPackage = { name: "NONE", value: 0 };
-    } else if (packageType && packageType.startsWith("BMS_")) {
-      const amtStr = packageType.replace("BMS_", "");
+    } else if (packageType && (packageType.startsWith("Ecash_") || packageType.startsWith("BMS_"))) {
+      const amtStr = packageType.replace(/^(Ecash_|BMS_)/, "");
       const amt = Number(amtStr);
       if (!isNaN(amt) && amt > 0) {
         selectedPackage = { name: `PKG-${amt}`, value: amt };

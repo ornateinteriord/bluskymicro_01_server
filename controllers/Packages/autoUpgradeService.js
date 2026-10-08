@@ -4,7 +4,7 @@ const TransactionModel = require("../../models/Transaction/Transaction");
 const ReceiptsModel = require("../../models/receipts.model");
 const mlmService = require("../Users/mlmService/mlmService");
 
-const PACKAGE_SEQUENCE = [1000, 2000, 5000, 10000, 25000, 50000, 100000, 250000, 500000, 1000000, 2500000];
+// const PACKAGE_SEQUENCE = [500, 1000, 2000, 3000, 5000, 10000, 25000, 50000, 100000, 250000, 500000, 1000000, 2500000];
 
 const processAutoUpgrades = async () => {
   console.log("⏰ [CRON] Starting Auto Upgrade Wallet Process...");

@@ -1,4 +1,12 @@
 const mongoose = require("mongoose");
+const dns = require("dns");
+
+// Ensure MongoDB Atlas SRV resolution succeeds on Windows
+try {
+  dns.setServers(["8.8.8.8", "1.1.1.1"]);
+} catch (e) {
+  // Ignore if unable to set
+}
 
 // Global connection cache for serverless
 let cachedConnection = null;

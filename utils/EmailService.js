@@ -43,7 +43,7 @@ const transporter = nodemailer.createTransport({
 const sendMail = async (email, subject, htmlContent, textContent = '', attachments = []) => {
   try {
     const mailOptions = {
-      from: `"BMS" <${process.env.EMAIL_USER}>`,
+      from: `"Ecash" <${process.env.EMAIL_USER}>`,
       to: email,
       subject: subject,
       html: htmlContent,

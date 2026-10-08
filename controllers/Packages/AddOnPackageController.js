@@ -20,6 +20,10 @@ const requestAddOn = async (req, res) => {
       return res.status(400).json({ success: false, message: "Member ID and Amount are required" });
     }
 
+    if (Number(requested_amount) < 100) {
+      return res.status(400).json({ success: false, message: "Minimum package amount is ₹100" });
+    }
+
     const member = await MemberModel.findOne({ Member_id: member_id });
     if (!member) {
       return res.status(404).json({ success: false, message: "Member not found" });
@@ -315,6 +319,10 @@ const buyPackageDirectly = async (req, res) => {
 
     if (!member_id || !requested_amount) {
       return res.status(400).json({ success: false, message: "Member ID and Amount are required" });
+    }
+
+    if (Number(requested_amount) < 100) {
+      return res.status(400).json({ success: false, message: "Minimum package amount is ₹100" });
     }
 
     const finalTargetId = target_member_id || member_id;
