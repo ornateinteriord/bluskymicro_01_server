@@ -67,10 +67,14 @@ const io = new Server(server, {
         "https://BMSworld.club",
         "https://BMS-worl-club.vercel.app",
         "https://blusky-microservices-ui.vercel.app",
+        "https://bluskymicro01ui.vercel.app",
+        "https://e-cash.in",
+        "https://www.e-cash.in",
         "https://www.bluskymicroservices.com"
-      ].filter(Boolean);
+      ].filter(Boolean).map(o => o.replace(/\/$/, ""));
 
-      if (isLocalhost || isNgrok || socketAllowedOrigins.includes(origin)) {
+      const cleanOrigin = origin?.replace(/\/$/, "");
+      if (isLocalhost || isNgrok || socketAllowedOrigins.includes(cleanOrigin) || socketAllowedOrigins.includes(origin)) {
         return callback(null, true);
       }
 
@@ -129,8 +133,11 @@ const allowedOrigins = [
   "https://www.BMSworld.club",
   "https://BMSworld.club",
   "https://blusky-microservices-ui.vercel.app",
+  "https://bluskymicro01ui.vercel.app",
+  "https://e-cash.in",
+  "https://www.e-cash.in",
   "https://www.bluskymicroservices.com"
-].filter(Boolean);
+].filter(Boolean).map(o => o.replace(/\/$/, ""));
 
 app.use(
   cors({
@@ -139,8 +146,9 @@ app.use(
 
       const isLocalhost = /^http:\/\/localhost:\d+$/.test(origin);
       const isNgrok = origin.endsWith("ngrok-free.dev");
+      const cleanOrigin = origin.replace(/\/$/, "");
 
-      if (isLocalhost || isNgrok || allowedOrigins.includes(origin)) {
+      if (isLocalhost || isNgrok || allowedOrigins.includes(cleanOrigin) || allowedOrigins.includes(origin)) {
         return callback(null, true);
       }
 
@@ -158,7 +166,8 @@ app.options("*", cors({
     if (!origin) return callback(null, true);
     const isLocalhost = /^http:\/\/localhost:\d+$/.test(origin);
     const isNgrok = origin.endsWith("ngrok-free.dev");
-    if (isLocalhost || isNgrok || allowedOrigins.includes(origin)) {
+    const cleanOrigin = origin.replace(/\/$/, "");
+    if (isLocalhost || isNgrok || allowedOrigins.includes(cleanOrigin) || allowedOrigins.includes(origin)) {
       return callback(null, true);
     }
     return callback(new Error(`CORS BLOCKED: ${origin}`));
