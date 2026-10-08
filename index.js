@@ -38,6 +38,58 @@ const { startMaturityScheduler } = require("./utils/maturityScheduler");
 const app = express();
 const server = http.createServer(app);
 
+// ======================================================
+//        🛡️ CORS CONFIG (Placed First for Preflight)
+// ======================================================
+const allowedOrigins = [
+  process.env.FRONTEND_URL,
+  "https://BMS-worl-club.vercel.app",
+  "https://www.BMSworld.club",
+  "https://BMSworld.club",
+  "https://blusky-microservices-ui.vercel.app",
+  "https://bluskymicro01ui.vercel.app",
+  "https://e-cash.in",
+  "https://www.e-cash.in",
+  "https://www.bluskymicroservices.com"
+].filter(Boolean).map(o => o.replace(/\/$/, ""));
+
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true); // Postman / server-to-server
+
+      const isLocalhost = /^http:\/\/localhost:\d+$/.test(origin);
+      const isNgrok = origin.endsWith("ngrok-free.dev");
+      const cleanOrigin = origin.replace(/\/$/, "");
+
+      if (isLocalhost || isNgrok || allowedOrigins.includes(cleanOrigin) || allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+
+      return callback(new Error(`CORS BLOCKED: ${origin}`));
+    },
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization", "Accept", "X-Requested-With", "Origin", "ngrok-skip-browser-warning"],
+  })
+);
+
+app.options("*", cors({
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    const isLocalhost = /^http:\/\/localhost:\d+$/.test(origin);
+    const isNgrok = origin.endsWith("ngrok-free.dev");
+    const cleanOrigin = origin.replace(/\/$/, "");
+    if (isLocalhost || isNgrok || allowedOrigins.includes(cleanOrigin) || allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    return callback(new Error(`CORS BLOCKED: ${origin}`));
+  },
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "Accept", "X-Requested-With", "Origin", "ngrok-skip-browser-warning"],
+}));
+
 app.use(async (req, res, next) => {
   try {
     await connectDB();
@@ -124,58 +176,7 @@ io.on("connection", (socket) => {
 });
 
 
-// ======================================================
-//        🛡️ CORS CONFIG (Supports Vite + ngrok)
-// ======================================================
-const allowedOrigins = [
-  process.env.FRONTEND_URL,
-  "https://BMS-worl-club.vercel.app",
-  "https://www.BMSworld.club",
-  "https://BMSworld.club",
-  "https://blusky-microservices-ui.vercel.app",
-  "https://bluskymicro01ui.vercel.app",
-  "https://e-cash.in",
-  "https://www.e-cash.in",
-  "https://www.bluskymicroservices.com"
-].filter(Boolean).map(o => o.replace(/\/$/, ""));
 
-app.use(
-  cors({
-    origin: (origin, callback) => {
-      if (!origin) return callback(null, true); // Postman / server-to-server
-
-      const isLocalhost = /^http:\/\/localhost:\d+$/.test(origin);
-      const isNgrok = origin.endsWith("ngrok-free.dev");
-      const cleanOrigin = origin.replace(/\/$/, "");
-
-      if (isLocalhost || isNgrok || allowedOrigins.includes(cleanOrigin) || allowedOrigins.includes(origin)) {
-        return callback(null, true);
-      }
-
-      return callback(new Error(`CORS BLOCKED: ${origin}`));
-    },
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
-  })
-);
-
-
-app.options("*", cors({
-  origin: (origin, callback) => {
-    if (!origin) return callback(null, true);
-    const isLocalhost = /^http:\/\/localhost:\d+$/.test(origin);
-    const isNgrok = origin.endsWith("ngrok-free.dev");
-    const cleanOrigin = origin.replace(/\/$/, "");
-    if (isLocalhost || isNgrok || allowedOrigins.includes(cleanOrigin) || allowedOrigins.includes(origin)) {
-      return callback(null, true);
-    }
-    return callback(new Error(`CORS BLOCKED: ${origin}`));
-  },
-  credentials: true,
-  methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"],
-}));
 
 // ======================================================
 // ⚠️ IMPORTANT: RAW BODY FOR CASHFREE WEBHOOK
@@ -281,7 +282,6 @@ const startServer = async () => {
 // Start server (Vercel handles this differently)
 if (process.env.VERCEL !== "1") {
   startServer();
-} else {
-  // For Vercel, just export the app
-  module.exports = app;
 }
+
+module.exports = app;
