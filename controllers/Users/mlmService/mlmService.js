@@ -299,11 +299,9 @@ const createLevelBenefitsTransaction = async (transactionData, session = null) =
     // Use a unique compound ID to ensure consistency and speed in high-concurrency 
     const newTransactionId = `T-L-${payout_id}-${Math.floor(Math.random() * 1000)}`;
 
-    // Split the commission into 4 distinct wallets based on global rule (50% FD, 10% Withdrawal, 20% Purchase, 20% Upgrade)
-    const fdAmount = Number((amount * 0.50).toFixed(2));
-    const withdrawalAmount = Number((amount * 0.10).toFixed(2));
-    const purchaseAmount = Number((amount * 0.20).toFixed(2));
-    const upgradeAmount = Number((amount * 0.20).toFixed(2));
+    // 50% Main Wallet (Credits/Withdrawal) and 50% Re-Top Up Wallet
+    const mainWalletAmount = Number((amount * 0.50).toFixed(2));
+    const topUpAmount = Number((amount * 0.50).toFixed(2));
 
     const transaction = new TransactionModel({
       transaction_id: newTransactionId,
@@ -314,10 +312,11 @@ const createLevelBenefitsTransaction = async (transactionData, session = null) =
       reference_no: payout_id.toString(),
       description: payout_type,
       transaction_type: payout_type.includes('Referral Bonus') ? "Referral Bonus" : "Level Bonus",
-      ew_credit: withdrawalAmount.toString(),
-      uw_credit: upgradeAmount.toString(),
-      fd_credit: fdAmount.toString(),
-      pw_credit: purchaseAmount.toString(),
+      ew_credit: mainWalletAmount.toString(),
+      tw_credit: topUpAmount.toString(),
+      uw_credit: "0",
+      fd_credit: "0",
+      pw_credit: "0",
       ew_debit: "0",
       status: "Completed",
       level: level,
@@ -329,15 +328,13 @@ const createLevelBenefitsTransaction = async (transactionData, session = null) =
 
     await transaction.save({ session });
 
-    // Add amounts to sponsor's respective wallets
+    // Add amounts to sponsor's respective wallets (50% Main Wallet, 50% Top Up Wallet)
     await MemberModel.findOneAndUpdate(
       { Member_id: memberId },
       { 
         $inc: {
-          wallet_balance: withdrawalAmount,
-          upgrade_wallet: upgradeAmount,
-          fixed_deposit_wallet: fdAmount,
-          purchase_wallet: purchaseAmount
+          wallet_balance: mainWalletAmount,
+          top_up_wallet: topUpAmount
         } 
       },
       { session }

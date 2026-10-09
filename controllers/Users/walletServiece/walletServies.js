@@ -41,15 +41,16 @@ const getWalletOverview = async (req, res) => {
 
     // === TOP UP WALLET (completely separate) ===
     const topUpTransactions = transactions.filter(tx =>
-      tx.transaction_type === 'Top up'
+      tx.transaction_type === 'Top up' || (parseFloat(tx.tw_credit) > 0) || (parseFloat(tx.tw_debit) > 0)
     );
     const topUpCredits = topUpTransactions
       .filter(tx => tx.status === 'Completed' || tx.status === 'Approved')
-      .reduce((acc, tx) => acc + (parseFloat(tx.ew_credit) || 0), 0);
+      .reduce((acc, tx) => acc + (parseFloat(tx.tw_credit) || parseFloat(tx.ew_credit) || 0), 0);
     const topUpDebits = topUpTransactions
       .filter(tx => tx.status === 'Completed' || tx.status === 'Approved')
-      .reduce((acc, tx) => acc + (parseFloat(tx.ew_debit) || 0), 0);
-    const topUpBalance = Math.max(0, topUpCredits - topUpDebits);
+      .reduce((acc, tx) => acc + (parseFloat(tx.tw_debit) || (tx.transaction_type === 'Top up' ? parseFloat(tx.ew_debit) || 0 : 0)), 0);
+    const calculatedTopUp = Math.max(0, topUpCredits - topUpDebits);
+    const topUpBalance = Math.max(calculatedTopUp, member.top_up_wallet || 0);
 
     // === NORMAL WALLET (exclude loan AND top-up transactions) ===
     const nonLoanTransactions = transactions.filter(tx =>

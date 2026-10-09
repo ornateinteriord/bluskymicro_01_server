@@ -85,6 +85,23 @@ const getMemberDetails = async (req, res) => {
       await foundUser.save();
     }
 
+    if (!foundUser.member_code && foundUser instanceof MemberModel) {
+      const allMembersWithCode = await MemberModel.find({ member_code: { $exists: true, $ne: null } })
+        .select("member_code")
+        .lean();
+
+      let maxCode = 100;
+      for (const m of allMembersWithCode) {
+        const num = parseInt(m.member_code, 10);
+        if (!isNaN(num) && num > maxCode) {
+          maxCode = num;
+        }
+      }
+      const nextCode = maxCode + 1;
+      foundUser.member_code = String(nextCode).padStart(4, "0");
+      await foundUser.save();
+    }
+
     const idStr = String(foundUser.Member_id || foundUser.member_id || '1');
     let numericPart = idStr.replace(/\D/g, '');
     if (!numericPart) {
@@ -96,10 +113,14 @@ const getMemberDetails = async (req, res) => {
     }
     const last6 = numericPart.padStart(6, '0').slice(-6);
     const virtual_card_number = ('4638292644' + last6).replace(/(.{4})/g, '$1 ').trim();
+    const memberCodeFormatted = foundUser.member_code || '0101';
 
     // Add registration data to response
     const responseData = {
       ...foundUser.toObject(),
+      member_code: memberCodeFormatted,
+      user_id: memberCodeFormatted,
+      reference_id: memberCodeFormatted,
       virtual_card_number,
       qr_code: foundUser.qr_code || `BMS-P2P:${foundUser.Member_id || foundUser.member_id}`,
       registration_stats: {

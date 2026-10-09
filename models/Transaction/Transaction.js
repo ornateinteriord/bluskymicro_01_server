@@ -15,6 +15,7 @@ const TransactionSchema = new mongoose.Schema(
     uw_debit: { type: String },
     fd_credit: { type: String },
     tw_credit: { type: String },
+    tw_debit: { type: String },
     pw_credit: { type: String },
     status: {
       type: String,

@@ -14,6 +14,22 @@ const path = require("path");
 const recoverySubject = "BMS - Password Recovery";
 const resetPasswordSubject = "BMS - OTP Verification";
 
+const generateMemberCode = async () => {
+  const members = await MemberModel.find({ member_code: { $exists: true, $ne: null } })
+    .select("member_code")
+    .lean();
+
+  let maxCode = 100;
+  for (const m of members) {
+    const num = parseInt(m.member_code, 10);
+    if (!isNaN(num) && num > maxCode) {
+      maxCode = num;
+    }
+  }
+  const nextCode = maxCode + 1;
+  return String(nextCode).padStart(4, "0"); // "0101", "0102", "0103"...
+};
+
 const generateUniqueMemberId = async () => {
   let newNumber = 1;
   // Get the most recently created member (sorted by _id)
@@ -48,6 +64,7 @@ const signup = async (req, res) => {
     const mobileNumber = (otherDetails.mobileno || otherDetails.mobile || "").trim();
     // User ID is the mobile number
     const memberId = mobileNumber || await generateUniqueMemberId();
+    const memberCode = await generateMemberCode();
 
     const existingMember = await MemberModel.findOne({
       $or: [
@@ -70,6 +87,7 @@ const signup = async (req, res) => {
 
     let memberData = {
       Member_id: memberId,
+      member_code: memberCode,
       qr_code: `BMS-P2P:${memberId}`,
       email,
       password,
