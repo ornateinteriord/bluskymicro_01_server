@@ -78,17 +78,15 @@ const distributeGlobalIncome = async (memberId, packageAmount) => {
         // Payout is 0.2% of the NEW buyer's package amount.
         const payoutAmount = Number((amount * 0.002).toFixed(2));
 
-        // 50% Main Wallet (Credits/Withdrawal) and 50% Re-Top Up Wallet
-        const mainWalletAmount = Number((payoutAmount * 0.50).toFixed(2));
-        const topUpAmount = Number((payoutAmount * 0.50).toFixed(2));
+        // 100% to Credits Wallet - Retopup wallet not required
+        const mainWalletAmount = payoutAmount;
 
-        // Distribute the payout based on the 50/50 wallet rule
+        // Distribute 100% to Credits Wallet
         await MemberModel.findOneAndUpdate(
           { Member_id: beneficiaryId },
           { 
-            $inc: {
+            $inc: { 
               wallet_balance: mainWalletAmount,
-              top_up_wallet: topUpAmount,
               global_income: payoutAmount // Track total global income
             } 
           }
@@ -97,15 +95,15 @@ const distributeGlobalIncome = async (memberId, packageAmount) => {
         // Generate a fast random txId to prevent DB bottlenecks
         const txId = "GI" + Date.now().toString() + Math.floor(1000 + Math.random() * 9000).toString();
 
-        // Record the transaction matching the wallet distribution (50% ew_credit, 50% tw_credit)
+        // Record the transaction matching credits wallet (100% ew_credit)
         const transaction = new TransactionModel({
           transaction_id: txId,
           transaction_date: new Date(),
           member_id: beneficiaryId,
-          description: `Global Income (₹${beneficiaryEntry.package_amount}) from ${memberId}'s ${bundleName} purchase`,
+          description: `Global Income (₹${beneficiaryEntry.package_amount}) from ${memberId}'s investment`,
           transaction_type: "Global Income",
           ew_credit: mainWalletAmount.toString(),
-          tw_credit: topUpAmount.toString(),
+          tw_credit: "0",
           fd_credit: "0",
           ew_debit: "0",
           uw_credit: "0",

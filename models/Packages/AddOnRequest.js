@@ -18,8 +18,12 @@ const AddOnRequestSchema = new mongoose.Schema({
   roi_start_date: { type: String },
 
   // Load Fund specific fields
-  payment_method: { type: String, enum: ["crypto", "wallet"], default: "crypto" },
-  tx_no: { type: String, default: null },
+  payment_method: { 
+    type: String, 
+    enum: ["crypto", "wallet", "UPI/QR", "upi", "UPI", "bank_transfer"], 
+    default: "UPI/QR" 
+  },
+  tx_no: { type: String, default: null, trim: true },
   screenshot_url: { type: String, default: null },
 
   admin_audit: {
@@ -27,5 +31,8 @@ const AddOnRequestSchema = new mongoose.Schema({
     timestamp: { type: Date }
   }
 }, { timestamps: true, collection: "add_on_request_tbl" });
+
+AddOnRequestSchema.index({ tx_no: 1 });
+
 
 module.exports = mongoose.model("AddOnRequest", AddOnRequestSchema);

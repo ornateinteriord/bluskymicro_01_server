@@ -31,7 +31,59 @@ const requestAddOn = async (req, res) => {
 
     const method = payment_method || "crypto";
 
-    let generatedTxNo = tx_no;
+    // Non-wallet payments (UPI/QR, crypto) require a transaction reference number
+    if (method !== "wallet") {
+      if (!tx_no || !tx_no.toString().trim()) {
+        return res.status(400).json({
+          success: false,
+          message: "Transaction reference number (UTR / Txn Ref) is required",
+        });
+      }
+    }
+
+    const cleanTxNo = tx_no ? tx_no.toString().trim() : "";
+    let generatedTxNo = cleanTxNo || null;
+
+    if (cleanTxNo && method !== "wallet") {
+      // Exact case-insensitive match for transaction reference
+      const escapedTx = cleanTxNo.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const txRegex = new RegExp(`^${escapedTx}$`, "i");
+
+      // 1. Check existing pending or approved requests in AddOnRequestModel
+      const existingRequest = await AddOnRequestModel.findOne({
+        tx_no: { $regex: txRegex },
+        status: { $in: ["PENDING", "APPROVED"] },
+      });
+
+      if (existingRequest) {
+        if (existingRequest.status === "PENDING") {
+          return res.status(400).json({
+            success: false,
+            message: `Transaction reference number "${cleanTxNo}" has already been submitted and is currently pending verification. Each transaction reference number must be unique.`,
+          });
+        }
+        return res.status(400).json({
+          success: false,
+          message: `Transaction reference number "${cleanTxNo}" has already been approved and credited. Each transaction reference number must be unique.`,
+        });
+      }
+
+      // 2. Check if already recorded in TransactionModel
+      const existingTx = await TransactionModel.findOne({
+        $or: [
+          { reference_no: { $regex: txRegex } },
+          { transaction_id: cleanTxNo },
+        ],
+        status: { $in: ["Completed", "Approved", "Pending", "active"] },
+      });
+
+      if (existingTx) {
+        return res.status(400).json({
+          success: false,
+          message: `Transaction reference number "${cleanTxNo}" has already been processed in the system. Each transaction reference number must be unique.`,
+        });
+      }
+    }
 
     if (method === "wallet") {
       const transactions = await TransactionModel.find({ member_id });
@@ -218,30 +270,30 @@ const evaluateRequest = async (req, res) => {
           const lastIdNum = parseInt(lastTx.transaction_id.replace(/\D/g, ""), 10) || 0;
           topUpTxId = lastIdNum + 1;
         }
-        const topUpTransaction = new TransactionModel({
+        const creditTransaction = new TransactionModel({
           transaction_id: topUpTxId.toString(),
           transaction_date: new Date(),
           member_id: request.member_id,
           Name: member.Name,
           mobileno: member.mobileno,
-          description: "Load Fund",
-          transaction_type: "Top up",
+          description: "Add Credits",
+          transaction_type: "Credit Deposit",
           ew_credit: request.requested_amount,
           ew_debit: 0,
           status: "Completed",
           net_amount: request.requested_amount,
           gross_amount: request.requested_amount,
-          reference_no: request.request_id
+          reference_no: request.tx_no || request.request_id
         });
-        await topUpTransaction.save();
+        await creditTransaction.save();
 
-        // Increment the Top Up Wallet balance in the Member table
+        // Increment the Credits Wallet (wallet_balance) in the Member table
         await MemberModel.findOneAndUpdate(
           { Member_id: request.member_id },
-          { $inc: { top_up_wallet: Number(request.requested_amount) } }
+          { $inc: { wallet_balance: Number(request.requested_amount) } }
         );
 
-        console.log(`✅ Top Up Wallet credited: ₹${request.requested_amount} for ${request.member_id}`);
+        console.log(`✅ Credits Wallet credited: ₹${request.requested_amount} for ${request.member_id}`);
 
         // Send Email Notification
         const memberEmail = member.Email || member.email;
@@ -337,34 +389,35 @@ const buyPackageDirectly = async (req, res) => {
       return res.status(404).json({ success: false, message: "Target member not found" });
     }
 
-    // 0. Check if package already purchased
+    // 0. Check if invest amount already active
     if (Number(targetMember.package_value) === Number(requested_amount)) {
-      return res.status(400).json({ success: false, message: "You have already purchased this package." });
+      return res.status(400).json({ success: false, message: "You have already invested this amount." });
     }
 
     const existingAddOn = await AddOnPackageModel.findOne({ member_id: finalTargetId, amount: Number(requested_amount) });
     if (existingAddOn) {
-      return res.status(400).json({ success: false, message: "You have already purchased this package." });
+      return res.status(400).json({ success: false, message: "You have already invested this amount." });
     }
 
-    // 1. Verify Top Up Balance for Payer
+    // 1. Verify Credits Balance for Payer
     const transactions = await TransactionModel.find({ member_id: member_id });
-    const topUpTransactions = transactions.filter(tx => tx.transaction_type === 'Top up');
+    const nonLoanTransactions = transactions.filter(tx =>
+      !tx.transaction_type?.toLowerCase().includes('loan') &&
+      !tx.description?.toLowerCase().includes('loan')
+    );
+    const completedAndPendingTx = nonLoanTransactions.filter(tx =>
+      tx.status === "Completed" || tx.status === "Pending" || tx.status === "Approved"
+    );
+    const availableBalance = completedAndPendingTx.reduce((acc, tx) =>
+      acc + (parseFloat(tx.ew_credit) || 0) - (parseFloat(tx.ew_debit) || 0), 0
+    );
+    const creditsBalance = Math.max(availableBalance, payer.wallet_balance || 0);
 
-    const topUpCredits = topUpTransactions
-      .filter(tx => tx.status === 'Completed' || tx.status === 'Approved')
-      .reduce((acc, tx) => acc + (parseFloat(tx.ew_credit) || 0), 0);
-    const topUpDebits = topUpTransactions
-      .filter(tx => tx.status === 'Completed' || tx.status === 'Approved')
-      .reduce((acc, tx) => acc + (parseFloat(tx.ew_debit) || 0), 0);
-
-    const topUpBalance = Math.max(0, topUpCredits - topUpDebits);
-
-    if (topUpBalance < Number(requested_amount)) {
-      return res.status(400).json({ success: false, message: "Insufficient Top Up Balance." });
+    if (creditsBalance < Number(requested_amount)) {
+      return res.status(400).json({ success: false, message: "Insufficient Credits Balance." });
     }
 
-    // 2. Deduct from Top Up Balance (Payer)
+    // 2. Deduct from Credits Balance (Payer)
     const lastTx = await TransactionModel.findOne({}).sort({ createdAt: -1 }).exec();
     let newTxId = 1;
     if (lastTx && lastTx.transaction_id) {
@@ -372,9 +425,9 @@ const buyPackageDirectly = async (req, res) => {
       newTxId = lastIdNum + 1;
     }
 
-    let description = "Direct Package Purchase";
+    let description = "Direct Invest Amount";
     if (member_id !== finalTargetId) {
-      description = `Package Purchase for ${finalTargetId}`;
+      description = `Invest Amount for ${finalTargetId}`;
     }
 
     const deductionTx = new TransactionModel({
@@ -384,30 +437,36 @@ const buyPackageDirectly = async (req, res) => {
       Name: payer.Name,
       mobileno: payer.mobileno,
       description: description,
-      transaction_type: "Top up", // Crucial: must be 'Top up' to affect topUpBalance correctly
+      transaction_type: "Invest Amount",
       ew_credit: 0,
       ew_debit: Number(requested_amount),
       status: "Completed",
       net_amount: Number(requested_amount),
       gross_amount: Number(requested_amount),
-      balance: (topUpBalance - Number(requested_amount)).toString()
+      balance: (creditsBalance - Number(requested_amount)).toString()
     });
     await deductionTx.save();
 
-    // Deduct the Top Up Wallet balance in the Member table
+    // Deduct the Credits balance in the Member table
     await MemberModel.findOneAndUpdate(
       { Member_id: member_id },
-      { $inc: { top_up_wallet: -Number(requested_amount) } }
+      { $inc: { wallet_balance: -Number(requested_amount) } }
     );
 
-    // 3. Create Package & Single Leg Income Logic for Target Member
+    // 3. Activate Investment & Daily Incentive for Target Member
     const request_id = `DIR${Date.now()}`; // Pseudo request ID for tracking
 
     // CASE A: Primary Package
+    const todayStr = moment().utcOffset("+05:30").format("YYYY-MM-DD");
     if (!targetMember.package_value || targetMember.package_value === 0) {
       targetMember.package_value = requested_amount;
       targetMember.spackage = `PKG-${requested_amount}`;
       targetMember.status = "active";
+      targetMember.roi_status = "Active";
+      targetMember.roi_payout_count = 0;
+      targetMember.roi_payout_target = 200;
+      targetMember.roi_start_date = todayStr;
+      targetMember.roi_last_payout_date = null;
       await targetMember.save();
     }
     // CASE B: Add-On Package
@@ -416,6 +475,11 @@ const buyPackageDirectly = async (req, res) => {
         package_id: `PKG-A-${Date.now()}`,
         member_id: finalTargetId,
         amount: requested_amount,
+        roi_status: "Active",
+        roi_payout_count: 0,
+        roi_payout_target: 200,
+        roi_start_date: todayStr,
+        roi_last_payout_date: null,
         request_id: request_id,
         admin_id: "SYSTEM_DIRECT"
       });
@@ -429,114 +493,13 @@ const buyPackageDirectly = async (req, res) => {
     //   console.error("Global income distribution failed:", globalIncomeErr);
     // }
 
-    // --- NEW: Single Leg Income (1.5% cashback to the user themselves + up to 100 previous buyers of the same package) ---
-    // Calculate bundle amounts based on the requested amount
-    let bundleAmounts = [requested_amount, requested_amount.toString()];
-
-    if (bundleAmounts.length > 0) {
-      try {
-        const primaryBuyers = await MemberModel.find({
-
-          package_value: { $in: bundleAmounts },
-          Member_id: { $ne: finalTargetId }
-        }).select('Member_id Name mobileno createdAt package_value').lean();
-
-        const addonBuyers = await AddOnPackageModel.find({
-          amount: { $in: bundleAmounts },
-          member_id: { $ne: finalTargetId }
-        }).select('member_id amount createdAt').lean();
-
-        console.log(`=== SINGLE LEG INCOME DISTRIBUTION START ===`);
-        console.log(`Buyer: ${finalTargetId}, Package Amount: ₹${requested_amount}`);
-
-        const targetMemberTime = new Date(targetMember.createdAt).getTime();
-        const targetMemberId = targetMember.Member_id;
-        const eligibleMap = new Map(); // Use map to keep only unique members
-
-        for (const buyer of primaryBuyers) {
-          const buyerTime = new Date(buyer.createdAt).getTime();
-          if ((buyerTime < targetMemberTime || (buyerTime === targetMemberTime && buyer.Member_id < targetMemberId)) && !eligibleMap.has(buyer.Member_id)) {
-            eligibleMap.set(buyer.Member_id, { id: buyer.Member_id, name: buyer.Name, phone: buyer.mobileno, time: buyerTime, package_amount: Number(buyer.package_value) });
-          }
-        }
-
-        for (const addon of addonBuyers) {
-          if (!eligibleMap.has(addon.member_id)) {
-            const m = await MemberModel.findOne({ Member_id: addon.member_id }).select('Member_id Name mobileno createdAt').lean();
-            if (m) {
-              const mTime = new Date(m.createdAt).getTime();
-              if (mTime < targetMemberTime || (mTime === targetMemberTime && m.Member_id < targetMemberId)) {
-                eligibleMap.set(addon.member_id, { id: m.Member_id, name: m.Name, phone: m.mobileno, time: mTime, package_amount: Number(addon.amount) });
-              }
-            }
-          }
-        }
-
-        // Sort by time (oldest to newest) to find the chronological line, and take the 100 most recent ones before this user
-        let eligibleMembers = Array.from(eligibleMap.values());
-        eligibleMembers.sort((a, b) => a.time - b.time);
-        const finalEligibleMembers = eligibleMembers.slice(-100);
-
-        console.log(`Total Eligible Upline Users Found: ${finalEligibleMembers.length}`);
-        console.log(`Eligible Users List:`, finalEligibleMembers.map(m => m.id));
-        console.log(`============================================`);
-
-        for (const member of finalEligibleMembers) {
-          // Each upliner gets 0.2% of the NEW buyer's package amount
-          const memberSingleLegIncome = Number((requested_amount * 0.002).toFixed(2));
-          if (memberSingleLegIncome > 0) {
-            // 50% Main Wallet (Credits/Withdrawal) and 50% Re-Top Up Wallet
-            const mainWalletAmount = Number((memberSingleLegIncome * 0.50).toFixed(2));
-            const topUpAmount = Number((memberSingleLegIncome * 0.50).toFixed(2));
-            
-            const sliTransaction = new TransactionModel({
-              transaction_id: `SLI${Date.now()}${Math.floor(Math.random() * 1000)}`,
-              transaction_date: new Date().toISOString(),
-              member_id: member.id,
-              Name: member.name,
-              mobileno: member.phone,
-              description: `Single Leg Income (₹${member.package_amount}) from ${finalTargetId}'s bundle purchase`,
-              transaction_type: "Single Leg Income",
-              ew_credit: mainWalletAmount.toString(),
-              tw_credit: topUpAmount.toString(),
-              fd_credit: "0",
-              uw_credit: "0",
-              pw_credit: "0",
-              ew_debit: "0",
-              status: "Completed",
-              net_amount: memberSingleLegIncome,
-              gross_amount: memberSingleLegIncome
-            });
-
-            await sliTransaction.save();
-
-            await MemberModel.findOneAndUpdate(
-              { Member_id: member.id },
-              { 
-                $inc: { 
-                  wallet_balance: mainWalletAmount,
-                  top_up_wallet: topUpAmount,
-                  global_income: memberSingleLegIncome
-                } 
-              }
-            );
-          }
-        }
-      } catch (err) {
-        console.error("Error distributing single leg income to previous buyers:", err);
-      }
-    }
-    // ----------------------------------------------------------------------
-
-
-
     // 4. MLM Commissions - For Target Member's Sponsor
     try {
       const commissions = await mlmService.calculateCommissions(
         finalTargetId,
         targetMember.sponsor_id,
         requested_amount,
-        "Add-On"
+        "Invest Amount"
       );
       if (commissions.length > 0) {
         await mlmService.processCommissions(commissions);
@@ -561,8 +524,8 @@ const buyPackageDirectly = async (req, res) => {
         receipt_id: newReceiptId,
         receipt_date: new Date(),
         received_from: payer.Name,
-        receipt_details: `Direct Package Purchase ${member_id !== finalTargetId ? 'for ' + finalTargetId : ''} - ${requested_amount}`,
-        mode_of_payment_received: "Top Up Wallet",
+        receipt_details: `Direct Invest Amount ${member_id !== finalTargetId ? 'for ' + finalTargetId : ''} - ${requested_amount}`,
+        mode_of_payment_received: "Credits Wallet",
         amount: requested_amount,
         status: "active",
         ref_no: request_id,
@@ -575,7 +538,7 @@ const buyPackageDirectly = async (req, res) => {
       console.error(`❌ Banking Receipt generation failed:`, receiptErr.message);
     }
 
-    res.status(200).json({ success: true, message: `Package purchased successfully!` });
+    res.status(200).json({ success: true, message: `Invest Amount processed successfully!` });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

@@ -25,8 +25,35 @@ const getTransactionDetails = async (req, res) => {
     }
 
     if (type && type !== "all") {
-      if (type === "Withdrawal") {
+      if (type.toLowerCase() === "withdrawal") {
         query.transaction_type = "Withdrawal";
+      } else if (type.toLowerCase() === "credits" || type.toLowerCase() === "credit") {
+        query.$and = [
+          {
+            $or: [
+              { ew_credit: { $nin: ["0", "0.00", 0, null, ""] } },
+              { ew_debit: { $nin: ["0", "0.00", 0, null, ""] } },
+              {
+                transaction_type: {
+                  $regex: /credit|deposit|load|withdraw|activat|package|daily|incentive|single|level|referral|direct|p2p|transfer|commission|benefit|roi/i
+                }
+              },
+              {
+                description: {
+                  $regex: /credit|deposit|load|withdraw|activat|package|daily|incentive|single|level|referral|direct|p2p|transfer|commission|benefit|roi/i
+                }
+              }
+            ]
+          },
+          { transaction_type: { $not: /^loan/i } }
+        ];
+      } else if (type.toLowerCase() === "topup" || type.toLowerCase() === "retopup" || type.toLowerCase() === "re-topup") {
+        query.$or = [
+          { tw_credit: { $nin: ["0", "0.00", 0, null, ""] } },
+          { tw_debit: { $nin: ["0", "0.00", 0, null, ""] } },
+          { transaction_type: { $regex: /top\s*up|re-?\s*top\s*up|re-?\s*invest/i } },
+          { description: { $regex: /top\s*up|re-?\s*top\s*up|re-?\s*invest|50%\s*re-?topup/i } }
+        ];
       } else {
         query.account_type = type;
       }
@@ -86,7 +113,8 @@ const getTransactionDetails = async (req, res) => {
     if (!transactions.length) {
       return res.status(200).json({ 
         success: true, 
-        message: `No ${status && status !== 'all' ? status + ' ' : ''}transactions found` 
+        message: `No ${status && status !== 'all' ? status + ' ' : ''}transactions found`,
+        data: []
       });
     }
 

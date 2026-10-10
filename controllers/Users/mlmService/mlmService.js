@@ -4,29 +4,23 @@ const TransactionModel = require("../../../models/Transaction/Transaction");
 const CommissionModel = require("../../../models/commission.model");
 
 const referralCommissionPercentages = {
-  1: 20,
+  1: 10,
   2: 3,
   3: 2,
   4: 1,
-  5: 0.5,
-  6: 0.5,
-  7: 0.5,
-  8: 0.5,
-  9: 0.5,
-  10: 0.5
+  5: 1,
+  6: 1,
+  7: 1
 };
 
 const levelBenefitsPercentages = {
-  1: 20,
+  1: 10,
   2: 3,
   3: 2,
   4: 1,
-  5: 0.5,
-  6: 0.5,
-  7: 0.5,
-  8: 0.5,
-  9: 0.5,
-  10: 0.5
+  5: 1,
+  6: 1,
+  7: 1
 };
 
 /*
@@ -108,8 +102,8 @@ const calculateCommissions = async (newMemberId, directSponsorId, specificAmount
     }
 
 
-    // Find all upline sponsors up to 10 levels
-    const uplineSponsors = await findUplineSponsors(newMemberId, 10);
+    // Find all upline sponsors up to 7 levels
+    const uplineSponsors = await findUplineSponsors(newMemberId, 7);
 
     if (uplineSponsors.length === 0) {
       return [];
@@ -141,8 +135,8 @@ const calculateCommissions = async (newMemberId, directSponsorId, specificAmount
             amount: refAmount,
             percentage: refPercentage,
             packageValue: packageValue,
-            payout_type: `Level ${upline.level} Referral Bonus (${pkgType})`,
-            description: `Level ${upline.level} Referral commission (${refPercentage}%) from member ${newMemberId}'s ${pkgType} package (₹${packageValue})`,
+            payout_type: `Level ${upline.level} Referral Bonus (Invest Amount)`,
+            description: `Level ${upline.level} Referral commission (${refPercentage}%) from member ${newMemberId}'s investment (₹${packageValue})`,
             sponsor_status: upline.sponsor_status
           });
           console.log(`✅ [REFERRAL BONUS] Level ${upline.level}: ${upline.sponsor_name} (${upline.sponsor_id}) gets ₹${refAmount} (${refPercentage}%)`);
@@ -166,8 +160,8 @@ const calculateCommissions = async (newMemberId, directSponsorId, specificAmount
             amount: levelAmount,
             percentage: levelPercentage,
             packageValue: packageValue,
-            payout_type: `Level ${upline.level} Level Bonus (${pkgType})`,
-            description: `Level ${upline.level} Benefits commission (${levelPercentage}%) from member ${newMemberId}'s ${pkgType} package (₹${packageValue})`,
+            payout_type: `Level ${upline.level} Level Bonus (Invest Amount)`,
+            description: `Level ${upline.level} Benefits commission (${levelPercentage}%) from member ${newMemberId}'s investment (₹${packageValue})`,
             sponsor_status: upline.sponsor_status
           });
           console.log(`✅ [LEVEL BONUS] Level ${upline.level}: ${upline.sponsor_name} (${upline.sponsor_id}) gets ₹${levelAmount} (${levelPercentage}%)`);
@@ -299,9 +293,8 @@ const createLevelBenefitsTransaction = async (transactionData, session = null) =
     // Use a unique compound ID to ensure consistency and speed in high-concurrency 
     const newTransactionId = `T-L-${payout_id}-${Math.floor(Math.random() * 1000)}`;
 
-    // 50% Main Wallet (Credits/Withdrawal) and 50% Re-Top Up Wallet
-    const mainWalletAmount = Number((amount * 0.50).toFixed(2));
-    const topUpAmount = Number((amount * 0.50).toFixed(2));
+    // 100% Main Wallet (Credits/Withdrawal) - Retopup wallet not required
+    const mainWalletAmount = Number(amount.toFixed(2));
 
     const transaction = new TransactionModel({
       transaction_id: newTransactionId,
@@ -313,7 +306,7 @@ const createLevelBenefitsTransaction = async (transactionData, session = null) =
       description: payout_type,
       transaction_type: payout_type.includes('Referral Bonus') ? "Referral Bonus" : "Level Bonus",
       ew_credit: mainWalletAmount.toString(),
-      tw_credit: topUpAmount.toString(),
+      tw_credit: "0",
       uw_credit: "0",
       fd_credit: "0",
       pw_credit: "0",
@@ -328,13 +321,12 @@ const createLevelBenefitsTransaction = async (transactionData, session = null) =
 
     await transaction.save({ session });
 
-    // Add amounts to sponsor's respective wallets (50% Main Wallet, 50% Top Up Wallet)
+    // Add full amount to sponsor's credits wallet
     await MemberModel.findOneAndUpdate(
       { Member_id: memberId },
       { 
         $inc: {
-          wallet_balance: mainWalletAmount,
-          top_up_wallet: topUpAmount
+          wallet_balance: mainWalletAmount
         } 
       },
       { session }
@@ -418,8 +410,9 @@ const getUplineTree = async (memberId, maxLevels = 15) => {
 
 const getCommissionSummary = () => {
   return {
-    total_levels: 10,
+    total_levels: 7,
     referral_rates: referralCommissionPercentages,
+    level_rates: levelBenefitsPercentages,
     // roi_rates: roiCommissionPercentages, // Disabled as per user request (NO ROI)
     condition: "Commissions only for sponsors with 'active' status"
   };
@@ -615,6 +608,8 @@ const distributeROICommission = async (memberId, roiAmount, session = null, cust
 
 module.exports = {
   referralCommissionPercentages,
+  levelBenefitsPercentages,
+  commissionRates: levelBenefitsPercentages,
   // roiCommissionPercentages, // Disabled as per user request
   getOrdinal,
   findUplineSponsors,

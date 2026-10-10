@@ -115,6 +115,13 @@ const getMemberDetails = async (req, res) => {
     const virtual_card_number = ('4638292644' + last6).replace(/(.{4})/g, '$1 ').trim();
     const memberCodeFormatted = foundUser.member_code || '0101';
 
+    // Compute investment status
+    const memberIdVal = foundUser.Member_id || foundUser.member_id;
+    const addonPackages = await AddOnPackageModel.find({ member_id: memberIdVal, request_id: { $ne: 'PRIMARY' } });
+    const totalAddonAmount = addonPackages.reduce((acc, pkg) => acc + (pkg.amount || 0), 0);
+    const totalPackages = (Number(foundUser.package_value) || 0) + totalAddonAmount;
+    const hasInvestment = totalPackages > 0;
+
     // Add registration data to response
     const responseData = {
       ...foundUser.toObject(),
@@ -127,11 +134,16 @@ const getMemberDetails = async (req, res) => {
         direct: directCount,
         indirect: indirectCount,
         total: totalTeamCount
-      }
+      },
+      totalPackages: totalPackages,
+      hasInvestment: hasInvestment,
+      canReTopup: hasInvestment
     };
 
     return res.status(200).json({
       success: true,
+      hasInvestment: hasInvestment,
+      canReTopup: hasInvestment,
       data: responseData
     });
 
@@ -226,10 +238,10 @@ const activateMemberPackage = async (req, res) => {
       member_id: memberId,
       amount: amount,
       roi_status: "Active",
-      roi_payout_target: amount * 3,
+      roi_payout_target: 200,
       roi_payout_count: 0,
       roi_start_date: activationDate,
-      roi_last_payout_date: activationDate,
+      roi_last_payout_date: null,
       admin_id: req.user.id || "ADMIN"
     });
     await newAddOn.save();

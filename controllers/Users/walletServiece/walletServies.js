@@ -133,10 +133,15 @@ const getWalletOverview = async (req, res) => {
 
     const singleLineIncome = nonLoanTransactions
       .filter(tx =>
-        (tx.transaction_type === "Single Line Income" || tx.transaction_type === "Single Level Income" || tx.transaction_type === "Single Leg Income") &&
+        (tx.transaction_type === "Daily Incentive" ||
+          tx.transaction_type === "Single Line Income" ||
+          tx.transaction_type === "Single Level Income" ||
+          tx.transaction_type === "Single Leg Income" ||
+          tx.transaction_type === "ROI Payout" ||
+          tx.description?.toLowerCase().includes("daily incentive")) &&
         tx.status === "Completed"
       )
-      .reduce((acc, tx) => acc + (parseFloat(tx.gross_amount) || parseFloat(tx.net_amount) || parseFloat(tx.ew_credit) || 0), 0);
+      .reduce((acc, tx) => acc + (parseFloat(tx.gross_amount) || parseFloat(tx.net_amount) || ((parseFloat(tx.ew_credit) || 0) + (parseFloat(tx.tw_credit) || 0)) || parseFloat(tx.ew_credit) || 0), 0);
 
 
     // Calculate loan amounts separately (for information only)
@@ -151,6 +156,8 @@ const getWalletOverview = async (req, res) => {
 
     const addonPackages = await AddOnPackageModel.find({ member_id: memberId, request_id: { $ne: 'PRIMARY' } });
     const totalAddonAmount = addonPackages.reduce((acc, pkg) => acc + (pkg.amount || 0), 0);
+    const totalPackages = (member.package_value || 0) + totalAddonAmount;
+    const hasInvestment = totalPackages > 0;
 
     const singleLevelIncomeByPackage = {};
     const sliTransactions = transactions.filter(tx =>
@@ -172,6 +179,8 @@ const getWalletOverview = async (req, res) => {
 
     return res.status(200).json({
       success: true,
+      hasInvestment: hasInvestment,
+      canReTopup: hasInvestment,
       data: {
         balance: Math.max(0, availableBalance).toFixed(2),
         totalIncome: totalIncome.toFixed(2),
@@ -193,7 +202,9 @@ const getWalletOverview = async (req, res) => {
         pendingWithdrawals: pendingWithdrawals.toFixed(2),
         primaryPackage: member.package_value || 0,
         addOnPackages: totalAddonAmount,
-        totalPackages: (member.package_value || 0) + totalAddonAmount,
+        totalPackages: totalPackages,
+        hasInvestment: hasInvestment,
+        canReTopup: hasInvestment,
         // Upgrade Wallet
         upgradeWalletBalance: (member.upgrade_wallet || 0).toFixed(2),
         // Top Up Wallet (completely separate)
@@ -244,9 +255,6 @@ const getWalletWithdraw = async (req, res) => {
       return res.status(400).json({ success: false, message: "Withdrawals are only allowed from Monday to Friday" });
     }
 
-    if (withdrawalAmount < 500) {
-      return res.status(400).json({ success: false, message: "Minimum withdrawal amount is ₹500" });
-    }
 
     const member = await MemberModel.findOne({ Member_id: memberId });
     if (!member) return res.status(404).json({ success: false, message: "Member not found" });
@@ -379,27 +387,12 @@ const getWalletWithdraw = async (req, res) => {
     const addonPackages = await AddOnPackageModel.find({ member_id: memberId, request_id: { $ne: 'PRIMARY' } });
     const totalAddonAmount = addonPackages.reduce((acc, pkg) => acc + (pkg.amount || 0), 0);
     const totalPackages = (member.package_value || 0) + totalAddonAmount;
-    const maxWithdrawal = totalPackages * 0.25;
-
-
-
-    if (withdrawalAmount < 500) {
-      return res.status(400).json({
-        success: false,
-        message: "Minimum withdrawal amount is ₹500",
-        minimum: 500,
-        loanStatus: {
-          hasUnpaidLoan: hasUnpaidLoan,
-          isWithdrawalAllowed: !hasUnpaidLoan,
-          message: hasUnpaidLoan ? "Withdrawal blocked - Unpaid loan from before last Saturday" : "No unpaid loans"
-        }
-      });
-    }
+    const maxWithdrawal = totalPackages * 2;
 
     if (withdrawalAmount > maxWithdrawal) {
       return res.status(400).json({
         success: false,
-        message: `Maximum withdrawal limit is ₹${maxWithdrawal.toFixed(2)} (25% of your total package amount)`,
+        message: `Maximum withdrawal limit is ₹${maxWithdrawal.toFixed(2)} (2x of your total invest amount)`,
         loanStatus: {
           hasUnpaidLoan: hasUnpaidLoan,
           isWithdrawalAllowed: false,
@@ -454,7 +447,7 @@ const getWalletWithdraw = async (req, res) => {
       });
     }
 
-    const deduction = withdrawalAmount * 0.05;
+    const deduction = withdrawalAmount * 0.10;
     const netAmount = withdrawalAmount - deduction;
 
     const lastTransaction = await TransactionModel.findOne({})
@@ -508,7 +501,7 @@ const getWalletWithdraw = async (req, res) => {
           grossAmount: withdrawalAmount.toFixed(2),
           deduction: deduction.toFixed(2),
           netAmount: netAmount.toFixed(2),
-          deductionRate: "5%"
+          deductionRate: "10%"
         },
         balanceDetails: {
           previousBalance: availableBalance.toFixed(2),
@@ -530,7 +523,7 @@ const getWalletWithdraw = async (req, res) => {
         },
         status: "Pending",
         calculation: {
-          deduction: `5% of ₹${withdrawalAmount.toFixed(2)} = ₹${deduction.toFixed(2)}`,
+          deduction: `10% of ₹${withdrawalAmount.toFixed(2)} = ₹${deduction.toFixed(2)}`,
           netAmount: `₹${withdrawalAmount.toFixed(2)} - ₹${deduction.toFixed(2)} = ₹${netAmount.toFixed(2)}`,
           balanceUpdate: `₹${availableBalance.toFixed(2)} - ₹${withdrawalAmount.toFixed(2)} = ₹${newAvailableBalance.toFixed(2)}`
         },
@@ -624,14 +617,10 @@ const sendWithdrawalOTP = async (req, res) => {
     const addonPackages = await AddOnPackageModel.find({ member_id: memberId, request_id: { $ne: 'PRIMARY' } });
     const totalAddonAmount = addonPackages.reduce((acc, pkg) => acc + (pkg.amount || 0), 0);
     const totalPackages = (member.package_value || 0) + totalAddonAmount;
-    const maxWithdrawal = totalPackages * 0.25;
-
-    if (withdrawalAmount < 500) {
-      return res.status(400).json({ success: false, message: "Minimum withdrawal amount is ₹500" });
-    }
+    const maxWithdrawal = totalPackages * 2;
 
     if (withdrawalAmount > maxWithdrawal) {
-      return res.status(400).json({ success: false, message: `Maximum withdrawal limit is ₹${maxWithdrawal.toFixed(2)} (25% of your total package amount)` });
+      return res.status(400).json({ success: false, message: `Maximum withdrawal limit is ₹${maxWithdrawal.toFixed(2)} (2x of your total invest amount)` });
     }
 
     if (hasUnpaidLoan) {
@@ -1036,7 +1025,8 @@ const transferP2PWallet = async (req, res) => {
       member_id: { $in: possibleIds }
     });
 
-    if (fromWallet === "Earnings" || fromWallet === "Earnings Wallet") {
+    // Support Credits / Earnings / Main / Top Up
+    if (fromWallet === "Credits" || fromWallet === "Credits Wallet" || fromWallet === "Earnings" || fromWallet === "Earnings Wallet" || fromWallet === "Withdrawal Wallet" || fromWallet === "Main Wallet") {
       const nonLoanTransactions = transactions.filter(tx =>
         !tx.transaction_type?.toLowerCase().includes('loan') &&
         !tx.description?.toLowerCase().includes('loan') &&
@@ -1059,11 +1049,23 @@ const transferP2PWallet = async (req, res) => {
         .reduce((acc, tx) => acc + (parseFloat(tx.ew_debit) || 0), 0);
       currentBalance = Math.max(0, topUpCredits - topUpDebits);
     } else {
-      return res.status(400).json({ success: false, message: "Invalid source wallet" });
+      // Default to Credits wallet
+      const nonLoanTransactions = transactions.filter(tx =>
+        !tx.transaction_type?.toLowerCase().includes('loan') &&
+        !tx.description?.toLowerCase().includes('loan') &&
+        tx.transaction_type !== 'Top up'
+      );
+      const completedAndPendingTx = nonLoanTransactions.filter(tx =>
+        tx.status === "Completed" || tx.status === "Pending" || tx.status === "Approved"
+      );
+      const availableBalance = completedAndPendingTx.reduce((acc, tx) =>
+        acc + (parseFloat(tx.ew_credit) || 0) - (parseFloat(tx.ew_debit) || 0), 0
+      );
+      currentBalance = Math.max(0, availableBalance);
     }
 
     if (transferAmount > currentBalance) {
-      return res.status(400).json({ success: false, message: "Insufficient balance in " + fromWallet });
+      return res.status(400).json({ success: false, message: "Insufficient Credits balance for transfer" });
     }
 
     const lastTransaction = await TransactionModel.findOne({}).sort({ createdAt: -1 }).exec();
@@ -1078,7 +1080,7 @@ const transferP2PWallet = async (req, res) => {
       transaction_date: new Date(),
       member_id: memberId,
       description: `P2P Transfer sent to ${receiverMember.Name} (${receiverMember.Member_id})`,
-      transaction_type: (fromWallet === "Top Up" || fromWallet === "Top Up Wallet") ? "Top up" : "P2P Transfer",
+      transaction_type: "P2P Transfer",
       ew_credit: 0,
       ew_debit: transferAmount,
       uw_credit: 0,
@@ -1094,7 +1096,7 @@ const transferP2PWallet = async (req, res) => {
       transaction_date: new Date(),
       member_id: receiverMember.Member_id,
       description: `P2P Transfer received from ${member.Name} (${member.Member_id})`,
-      transaction_type: "Top up",
+      transaction_type: "P2P Transfer",
       ew_credit: transferAmount,
       ew_debit: 0,
       uw_credit: 0,
@@ -1105,13 +1107,9 @@ const transferP2PWallet = async (req, res) => {
     });
     await creditTx.save();
 
-    if (fromWallet === "Earnings" || fromWallet === "Earnings Wallet") {
-      await MemberModel.findOneAndUpdate({ Member_id: memberId }, { $inc: { wallet_balance: -transferAmount } });
-    } else {
-      await MemberModel.findOneAndUpdate({ Member_id: memberId }, { $inc: { top_up_wallet: -transferAmount } });
-    }
-
-    await MemberModel.findOneAndUpdate({ Member_id: receiverMember.Member_id }, { $inc: { top_up_wallet: transferAmount } });
+    // Debit sender Credits wallet & Credit receiver Credits wallet
+    await MemberModel.findOneAndUpdate({ Member_id: memberId }, { $inc: { wallet_balance: -transferAmount } });
+    await MemberModel.findOneAndUpdate({ Member_id: receiverMember.Member_id }, { $inc: { wallet_balance: transferAmount } });
 
     return res.status(200).json({ success: true, message: `Successfully transferred ₹${transferAmount} to ${receiverMember.Name}!` });
   } catch (error) {
