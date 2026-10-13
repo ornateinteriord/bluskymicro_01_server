@@ -7,10 +7,10 @@ const CashTransactionModel = require("../../../models/cashTransaction.model");
 const getDashboardCounts = async (req, res) => {
     try {
         // Get total members count
-        const totalMembers = await MemberModel.countDocuments({ status: "active" });
+        const totalMembers = await MemberModel.countDocuments({ status: { $ne: "deleted" } });
 
         // Get total agents count
-        const totalAgents = await AgentModel.countDocuments({ status: "active" });
+        const totalAgents = await AgentModel.countDocuments({ status: { $ne: "deleted" } });
 
         // Get total accounts count
         const totalAccounts = await AccountsModel.countDocuments();

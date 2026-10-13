@@ -800,6 +800,13 @@ exports.handleWebhook = async (req, res) => {
             }
 
             member.status = "active";
+            if (packageUpdated) {
+              member.roi_status = "Active";
+              member.roi_start_date = moment().utcOffset("+05:30").format("YYYY-MM-DD");
+              member.roi_payout_count = 0;
+              member.roi_payout_target = 200;
+              member.roi_last_payout_date = null;
+            }
             await member.save();
             console.log(`✅ Member ${member.Member_id} status updated from Pending to active`);
             if (packageUpdated) {

@@ -2,6 +2,7 @@ const AgentModel = require("../../../models/agent.model");
 const UserModel = require("../../../models/user.model");
 const { sendMail } = require("../../../utils/EmailService");
 const { generateWelcomeEmail } = require("../../../utils/emailTemplates");
+const { addAgentHierarchy } = require("../../../utils/hierarchyHelper");
 
 // Create a new agent
 const createAgent = async (req, res) => {
@@ -51,8 +52,8 @@ const createAgent = async (req, res) => {
             }
         }
 
-        // Create new agent with auto-generated agent_id
-        const newAgent = await AgentModel.create({
+        // Prepare agent data with hierarchy
+        const agentData = {
             agent_id: newAgentId,
             branch_id,
             date_of_joining,
@@ -67,8 +68,12 @@ const createAgent = async (req, res) => {
             introducer,
             entered_by,
             designation,
-            status: status || "active"
-        });
+            status: status || "active",
+            commission_eligible: true
+        };
+
+        const agentDataWithHierarchy = await addAgentHierarchy(agentData);
+        const newAgent = await AgentModel.create(agentDataWithHierarchy);
 
         // Create user entry automatically
         try {

@@ -69,14 +69,18 @@ const processDailyROI = async (targetMemberId = null, customToday = null) => {
                     continue;
                 }
 
-                // Determine start date
-                const startDateStr = member.roi_start_date || member.Date_of_joining || todayStr;
+                // Determine investment date
+                const investDateStr = member.roi_start_date || member.Date_of_joining || todayStr;
+                if (!member.roi_start_date) {
+                    await MemberModel.updateOne({ Member_id: member.Member_id }, { $set: { roi_start_date: investDateStr } });
+                }
                 const lastPayoutDateStr = member.roi_last_payout_date || null;
 
                 // Calculate eligible dates to process (Catch-up logic)
+                // Daily Incentive / ROI starts the NEXT DAY (tomorrow) after investment
                 let dateCursor;
                 if (!lastPayoutDateStr) {
-                    dateCursor = moment(startDateStr, "YYYY-MM-DD");
+                    dateCursor = moment(investDateStr, "YYYY-MM-DD").add(1, "days");
                 } else {
                     dateCursor = moment(lastPayoutDateStr, "YYYY-MM-DD").add(1, "days");
                 }
@@ -185,12 +189,16 @@ const processDailyROI = async (targetMemberId = null, customToday = null) => {
                 const member = await MemberModel.findOne({ Member_id: addon.member_id });
                 if (!member) continue;
 
-                const startDateStr = addon.roi_start_date || todayStr;
+                const investDateStr = addon.roi_start_date || (addon.createdAt ? moment(addon.createdAt).utcOffset("+05:30").format("YYYY-MM-DD") : todayStr);
+                if (!addon.roi_start_date) {
+                    await AddOnPackageModel.updateOne({ _id: addon._id }, { $set: { roi_start_date: investDateStr } });
+                }
                 const lastPayoutDateStr = addon.roi_last_payout_date || null;
 
+                // Daily Incentive / ROI starts the NEXT DAY (tomorrow) after investment
                 let dateCursor;
                 if (!lastPayoutDateStr) {
-                    dateCursor = moment(startDateStr, "YYYY-MM-DD");
+                    dateCursor = moment(investDateStr, "YYYY-MM-DD").add(1, "days");
                 } else {
                     dateCursor = moment(lastPayoutDateStr, "YYYY-MM-DD").add(1, "days");
                 }

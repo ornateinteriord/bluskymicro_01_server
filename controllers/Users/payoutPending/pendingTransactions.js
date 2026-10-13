@@ -15,6 +15,7 @@ const getPendingTransactions = async (req, res) => {
       return res.json({
         success: true,
         count: 0,
+        data: [],
         message: `No ${status} transactions found`,
       });
     }
@@ -23,8 +24,8 @@ const getPendingTransactions = async (req, res) => {
     const transactionsWithMember = await Promise.all(
       pendingTransactions.map(async (txn) => {
         const member = await MemberModel.findOne(
-          { Member_id: txn.member_id },
-          { mobileno: 1, ifsc_code: 1, account_number: 1, _id: 0 }
+          { $or: [{ Member_id: txn.member_id }, { member_id: txn.member_id }] },
+          { mobileno: 1, contactno: 1, ifsc_code: 1, account_number: 1, _id: 0 }
         );
         return {
           ...txn.toObject(),
@@ -86,7 +87,62 @@ const approveWithdrawal = async (req, res) => {
     });
   }
 };
+
+const rejectWithdrawal = async (req, res) => {
+  try {
+    const { transaction_id } = req.params;
+    const { reason } = req.body || {};
+
+    // Find specific pending withdrawal transaction
+    const transaction = await TransactionModel.findOne({
+      transaction_id: transaction_id,
+      status: { $in: ['Pending', 'Processing'] }
+    });
+
+    if (!transaction) {
+      return res.status(404).json({
+        success: false,
+        message: "Pending withdrawal not found"
+      });
+    }
+
+    transaction.status = 'Rejected';
+    if (reason) {
+      transaction.description = `Withdrawal Request Rejected: ${reason}`;
+    }
+    await transaction.save();
+
+    // Refund the debited amount back to member's wallet_balance
+    const refundAmount = parseFloat(transaction.ew_debit) || parseFloat(transaction.gross_amount) || 0;
+    if (refundAmount > 0) {
+      await MemberModel.findOneAndUpdate(
+        { Member_id: transaction.member_id },
+        { $inc: { wallet_balance: refundAmount } }
+      );
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Withdrawal rejected and amount refunded successfully",
+      data: {
+        transactionId: transaction.transaction_id,
+        memberId: transaction.member_id,
+        refundedAmount: refundAmount,
+        status: transaction.status
+      }
+    });
+  } catch (error) {
+    console.error("Error in rejectWithdrawal:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   getPendingTransactions,
-  approveWithdrawal
+  approveWithdrawal,
+  rejectWithdrawal
 };

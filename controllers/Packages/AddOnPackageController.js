@@ -107,12 +107,7 @@ const requestAddOn = async (req, res) => {
         { $inc: { wallet_balance: -Number(requested_amount) } }
       );
 
-      const lastTransaction = await TransactionModel.findOne({}).sort({ createdAt: -1 }).exec();
-      let newTransactionId = 1;
-      if (lastTransaction && lastTransaction.transaction_id) {
-        const lastIdNumber = parseInt(lastTransaction.transaction_id.replace(/\D/g, ""), 10) || 0;
-        newTransactionId = lastIdNumber + 1;
-      }
+      const newTransactionId = await generateTransactionId("PUR");
 
       const newTransaction = new TransactionModel({
         transaction_id: newTransactionId.toString(),
@@ -264,12 +259,7 @@ const evaluateRequest = async (req, res) => {
       }
 
       try {
-        const lastTx = await TransactionModel.findOne({}).sort({ createdAt: -1 }).exec();
-        let topUpTxId = 1;
-        if (lastTx && lastTx.transaction_id) {
-          const lastIdNum = parseInt(lastTx.transaction_id.replace(/\D/g, ""), 10) || 0;
-          topUpTxId = lastIdNum + 1;
-        }
+        const topUpTxId = await generateTransactionId("DEP");
         const creditTransaction = new TransactionModel({
           transaction_id: topUpTxId.toString(),
           transaction_date: new Date(),
@@ -320,12 +310,7 @@ const evaluateRequest = async (req, res) => {
             { $inc: { wallet_balance: Number(request.requested_amount) } }
           );
 
-          const lastTransaction = await TransactionModel.findOne({}).sort({ createdAt: -1 }).exec();
-          let newTransactionId = 1;
-          if (lastTransaction && lastTransaction.transaction_id) {
-            const lastIdNumber = parseInt(lastTransaction.transaction_id.replace(/\D/g, ""), 10) || 0;
-            newTransactionId = lastIdNumber + 1;
-          }
+          const newTransactionId = await generateTransactionId("REF");
 
           const newTransaction = new TransactionModel({
             transaction_id: newTransactionId.toString(),
@@ -418,12 +403,7 @@ const buyPackageDirectly = async (req, res) => {
     }
 
     // 2. Deduct from Credits Balance (Payer)
-    const lastTx = await TransactionModel.findOne({}).sort({ createdAt: -1 }).exec();
-    let newTxId = 1;
-    if (lastTx && lastTx.transaction_id) {
-      const lastIdNum = parseInt(lastTx.transaction_id.replace(/\D/g, ""), 10) || 0;
-      newTxId = lastIdNum + 1;
-    }
+    const newTxId = await generateTransactionId("INV");
 
     let description = "Direct Invest Amount";
     if (member_id !== finalTargetId) {

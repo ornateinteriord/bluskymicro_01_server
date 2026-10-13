@@ -6,6 +6,71 @@ const path = require("path");
 const { generateOTP, storeOTP, verifyOTP } = require("../../../utils/OtpService");
 const { sendMail } = require("../../../utils/EmailService");
 const admin = require("../../../utils/FirebaseService");
+const generateTransactionId = require("../../../utils/generateTransactionId");
+
+/**
+ * Calculate member's 2X cumulative withdrawal limits
+ * Rule:
+ * 1. Total Investment = Primary Package (package_value) + All Add-on Packages (AddOnPackageModel)
+ * 2. Max Withdrawal Limit = 2 * Total Investment
+ * 3. Total Withdrawn = Sum of all withdrawals with status Completed, Approved, Pending, Processing
+ * 4. Remaining Limit = Math.max(0, Max Withdrawal Limit - Total Withdrawn)
+ */
+const getMemberWithdrawalLimits = async (memberId) => {
+  const member = await MemberModel.findOne({
+    $or: [{ Member_id: memberId }, { member_id: memberId }]
+  });
+
+  if (!member) {
+    return {
+      primaryAmount: 0,
+      totalAddonAmount: 0,
+      totalInvested: 0,
+      maxWithdrawalLimit: 0,
+      totalWithdrawn: 0,
+      remainingWithdrawalLimit: 0,
+      hasInvestment: false
+    };
+  }
+
+  const actualMemberId = member.Member_id || memberId;
+
+  // 1. Total Investments
+  const addonPackages = await AddOnPackageModel.find({
+    member_id: actualMemberId,
+    request_id: { $ne: 'PRIMARY' }
+  });
+  const totalAddonAmount = addonPackages.reduce((acc, pkg) => acc + (parseFloat(pkg.amount) || 0), 0);
+  const primaryAmount = parseFloat(member.package_value) || 0;
+  const totalInvested = primaryAmount + totalAddonAmount;
+
+  // 2. Max 2x Limit
+  const maxWithdrawalLimit = totalInvested * 2;
+
+  // 3. Total Withdrawn So Far (include Pending, Processing, Approved, Completed)
+  const withdrawalTxs = await TransactionModel.find({
+    member_id: actualMemberId,
+    transaction_type: "Withdrawal",
+    status: { $in: ["Completed", "Approved", "Pending", "Processing"] }
+  });
+
+  const totalWithdrawn = withdrawalTxs.reduce((acc, tx) => {
+    return acc + (parseFloat(tx.gross_amount) || parseFloat(tx.ew_debit) || 0);
+  }, 0);
+
+  // 4. Remaining Limit
+  const remainingWithdrawalLimit = Math.max(0, maxWithdrawalLimit - totalWithdrawn);
+
+  return {
+    primaryAmount,
+    totalAddonAmount,
+    totalInvested,
+    maxWithdrawalLimit,
+    totalWithdrawn,
+    remainingWithdrawalLimit,
+    hasInvestment: totalInvested > 0
+  };
+};
 
 const getWalletOverview = async (req, res) => {
   try {
@@ -154,10 +219,10 @@ const getWalletOverview = async (req, res) => {
     const totalLoanDebits = loanTransactions.reduce((acc, tx) => acc + (parseFloat(tx.ew_debit) || 0), 0);
     const netLoanBalance = totalLoanCredits - totalLoanDebits;
 
-    const addonPackages = await AddOnPackageModel.find({ member_id: memberId, request_id: { $ne: 'PRIMARY' } });
-    const totalAddonAmount = addonPackages.reduce((acc, pkg) => acc + (pkg.amount || 0), 0);
-    const totalPackages = (member.package_value || 0) + totalAddonAmount;
-    const hasInvestment = totalPackages > 0;
+    const limits = await getMemberWithdrawalLimits(member.Member_id || memberId);
+    const totalAddonAmount = limits.totalAddonAmount;
+    const totalPackages = limits.totalInvested;
+    const hasInvestment = limits.hasInvestment;
 
     const singleLevelIncomeByPackage = {};
     const sliTransactions = transactions.filter(tx =>
@@ -176,6 +241,20 @@ const getWalletOverview = async (req, res) => {
         singleLevelIncomeByPackage[pkgVal] += (parseFloat(tx.gross_amount) || parseFloat(tx.net_amount) || parseFloat(tx.ew_credit) || 0);
       }
     });
+
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayEnd = new Date();
+    todayEnd.setHours(23, 59, 59, 999);
+
+    const existingWithdrawalToday = transactions.some(tx =>
+      tx.transaction_type === "Withdrawal" &&
+      ["Pending", "Approved", "Completed", "Processing"].includes(tx.status) &&
+      (
+        (tx.transaction_date && new Date(tx.transaction_date) >= todayStart && new Date(tx.transaction_date) <= todayEnd) ||
+        (tx.createdAt && new Date(tx.createdAt) >= todayStart && new Date(tx.createdAt) <= todayEnd)
+      )
+    );
 
     return res.status(200).json({
       success: true,
@@ -200,11 +279,16 @@ const getWalletOverview = async (req, res) => {
         totalAddonAmount: totalAddonAmount.toFixed(2),
         totalBenefits: (levelBenefits + roiLevelBenefits + directBenefits + repaymentCommission + roiBenefits + singleLineIncome).toFixed(2),
         pendingWithdrawals: pendingWithdrawals.toFixed(2),
-        primaryPackage: member.package_value || 0,
-        addOnPackages: totalAddonAmount,
-        totalPackages: totalPackages,
-        hasInvestment: hasInvestment,
-        canReTopup: hasInvestment,
+        primaryPackage: limits.primaryAmount,
+        addOnPackages: limits.totalAddonAmount,
+        totalPackages: limits.totalInvested,
+        totalInvested: limits.totalInvested,
+        maxWithdrawalLimit: limits.maxWithdrawalLimit,
+        totalWithdrawn: limits.totalWithdrawn,
+        remainingWithdrawalLimit: limits.remainingWithdrawalLimit,
+        hasInvestment: limits.hasInvestment,
+        canReTopup: limits.hasInvestment,
+        hasWithdrawnToday: existingWithdrawalToday,
         // Upgrade Wallet
         upgradeWalletBalance: (member.upgrade_wallet || 0).toFixed(2),
         // Top Up Wallet (completely separate)
@@ -243,25 +327,44 @@ const getWalletWithdraw = async (req, res) => {
 
     if (!memberId) return res.status(400).json({ success: false, message: "Member ID is required" });
     if (!amount) return res.status(400).json({ success: false, message: "Withdrawal amount is required" });
-    if (!otp) return res.status(400).json({ success: false, message: "OTP is required" });
+    // OTP requirement bypassed for now:
+    // if (!otp) return res.status(400).json({ success: false, message: "OTP is required" });
 
     const withdrawalAmount = parseFloat(amount);
     if (isNaN(withdrawalAmount) || withdrawalAmount <= 0) {
       return res.status(400).json({ success: false, message: "Invalid withdrawal amount" });
     }
 
-    const currentDay = new Date().getDay();
-    if (currentDay === 0 || currentDay === 6) {
-      return res.status(400).json({ success: false, message: "Withdrawals are only allowed from Monday to Friday" });
-    }
+    // Check if member already requested a withdrawal today (One withdrawal per day)
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayEnd = new Date();
+    todayEnd.setHours(23, 59, 59, 999);
 
+    const existingWithdrawalToday = await TransactionModel.findOne({
+      member_id: memberId,
+      transaction_type: "Withdrawal",
+      status: { $in: ["Pending", "Approved", "Completed", "Processing"] },
+      $or: [
+        { transaction_date: { $gte: todayStart, $lte: todayEnd } },
+        { createdAt: { $gte: todayStart, $lte: todayEnd } }
+      ]
+    });
+
+    if (existingWithdrawalToday) {
+      return res.status(400).json({
+        success: false,
+        message: "You have already requested a withdrawal today. Only one withdrawal per day is allowed."
+      });
+    }
 
     const member = await MemberModel.findOne({ Member_id: memberId });
     if (!member) return res.status(404).json({ success: false, message: "Member not found" });
 
-    if (!verifyOTP(member.email, otp)) {
-      return res.status(400).json({ success: false, message: "Invalid or expired OTP" });
-    }
+    // OTP verification bypassed for now:
+    // if (!verifyOTP(member.email, otp)) {
+    //   return res.status(400).json({ success: false, message: "Invalid or expired OTP" });
+    // }
 
     // Calculate last Saturday
     const today = new Date();
@@ -384,20 +487,30 @@ const getWalletWithdraw = async (req, res) => {
 
 
 
-    const addonPackages = await AddOnPackageModel.find({ member_id: memberId, request_id: { $ne: 'PRIMARY' } });
-    const totalAddonAmount = addonPackages.reduce((acc, pkg) => acc + (pkg.amount || 0), 0);
-    const totalPackages = (member.package_value || 0) + totalAddonAmount;
-    const maxWithdrawal = totalPackages * 2;
+    const limits = await getMemberWithdrawalLimits(member.Member_id || memberId);
 
-    if (withdrawalAmount > maxWithdrawal) {
+    if (!limits.hasInvestment) {
       return res.status(400).json({
         success: false,
-        message: `Maximum withdrawal limit is ₹${maxWithdrawal.toFixed(2)} (2x of your total invest amount)`,
+        message: "You must have an active investment package to request a withdrawal.",
         loanStatus: {
           hasUnpaidLoan: hasUnpaidLoan,
           isWithdrawalAllowed: false,
-          message: `Limit exceeded. Maximum allowed: ₹${maxWithdrawal.toFixed(2)}`
+          message: "No active investment found"
         }
+      });
+    }
+
+    if (withdrawalAmount > limits.remainingWithdrawalLimit) {
+      return res.status(400).json({
+        success: false,
+        message: `Maximum remaining withdrawal limit is ₹${limits.remainingWithdrawalLimit.toFixed(2)} (Total 2x Limit: ₹${limits.maxWithdrawalLimit.toFixed(2)}, Already Withdrawn: ₹${limits.totalWithdrawn.toFixed(2)})`,
+        loanStatus: {
+          hasUnpaidLoan: hasUnpaidLoan,
+          isWithdrawalAllowed: false,
+          message: `Limit exceeded. Remaining allowed: ₹${limits.remainingWithdrawalLimit.toFixed(2)}`
+        },
+        limits: limits
       });
     }
 
@@ -450,18 +563,10 @@ const getWalletWithdraw = async (req, res) => {
     const deduction = withdrawalAmount * 0.10;
     const netAmount = withdrawalAmount - deduction;
 
-    const lastTransaction = await TransactionModel.findOne({})
-      .sort({ createdAt: -1 })
-      .exec();
-
-    let newTransactionId = 1;
-    if (lastTransaction && lastTransaction.transaction_id) {
-      const lastIdNumber = parseInt(lastTransaction.transaction_id.replace(/\D/g, ""), 10) || 0;
-      newTransactionId = lastIdNumber + 1;
-    }
+    const newTransactionId = await generateTransactionId("WTH");
 
     const newTransaction = new TransactionModel({
-      transaction_id: newTransactionId.toString(),
+      transaction_id: newTransactionId,
       transaction_date: new Date(),
       member_id: memberId,
       description: "Withdrawal Request",
@@ -553,9 +658,27 @@ const sendWithdrawalOTP = async (req, res) => {
       return res.status(400).json({ success: false, message: "Invalid withdrawal amount" });
     }
 
-    const currentDay = new Date().getDay();
-    if (currentDay === 0 || currentDay === 6) {
-      return res.status(400).json({ success: false, message: "Withdrawals are only allowed from Monday to Friday" });
+    // Check if member already requested a withdrawal today (One withdrawal per day)
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayEnd = new Date();
+    todayEnd.setHours(23, 59, 59, 999);
+
+    const existingWithdrawalToday = await TransactionModel.findOne({
+      member_id: memberId,
+      transaction_type: "Withdrawal",
+      status: { $in: ["Pending", "Approved", "Completed", "Processing"] },
+      $or: [
+        { transaction_date: { $gte: todayStart, $lte: todayEnd } },
+        { createdAt: { $gte: todayStart, $lte: todayEnd } }
+      ]
+    });
+
+    if (existingWithdrawalToday) {
+      return res.status(400).json({
+        success: false,
+        message: "You have already requested a withdrawal today. Only one withdrawal per day is allowed."
+      });
     }
 
     const member = await MemberModel.findOne({ Member_id: memberId });
@@ -614,13 +737,21 @@ const sendWithdrawalOTP = async (req, res) => {
 
     let availableBalance = Math.max(0, totalCredits - totalDebits);
 
-    const addonPackages = await AddOnPackageModel.find({ member_id: memberId, request_id: { $ne: 'PRIMARY' } });
-    const totalAddonAmount = addonPackages.reduce((acc, pkg) => acc + (pkg.amount || 0), 0);
-    const totalPackages = (member.package_value || 0) + totalAddonAmount;
-    const maxWithdrawal = totalPackages * 2;
+    const limits = await getMemberWithdrawalLimits(member.Member_id || memberId);
 
-    if (withdrawalAmount > maxWithdrawal) {
-      return res.status(400).json({ success: false, message: `Maximum withdrawal limit is ₹${maxWithdrawal.toFixed(2)} (2x of your total invest amount)` });
+    if (!limits.hasInvestment) {
+      return res.status(400).json({
+        success: false,
+        message: "You must have an active investment package to request a withdrawal."
+      });
+    }
+
+    if (withdrawalAmount > limits.remainingWithdrawalLimit) {
+      return res.status(400).json({
+        success: false,
+        message: `Maximum remaining withdrawal limit is ₹${limits.remainingWithdrawalLimit.toFixed(2)} (Total 2x Limit: ₹${limits.maxWithdrawalLimit.toFixed(2)}, Already Withdrawn: ₹${limits.totalWithdrawn.toFixed(2)})`,
+        limits: limits
+      });
     }
 
     if (hasUnpaidLoan) {
@@ -668,9 +799,10 @@ const sendWithdrawalOTP = async (req, res) => {
       </div>
     </div>`;
 
-    await sendMail(member.email, "Ecash - Withdrawal Verification OTP", htmlContent, `Your OTP is ${otp}`, attachments);
+    // OTP sending commented out for now:
+    // await sendMail(member.email, "Ecash - Withdrawal Verification OTP", htmlContent, `Your OTP is ${otp}`, attachments);
 
-    return res.status(200).json({ success: true, message: "OTP sent to your registered email" });
+    return res.status(200).json({ success: true, message: "OTP bypassed for now" });
   } catch (error) {
     console.error("Error in sendWithdrawalOTP:", error);
     return res.status(500).json({ success: false, message: "Server error", error: error.message });
@@ -772,17 +904,13 @@ const sendWithdrawalOTP = async (req, res) => {
       return res.status(400).json({ success: false, message: "Insufficient balance in " + fromWallet });
     }
 
-    const lastTransaction = await TransactionModel.findOne({}).sort({ createdAt: -1 }).exec();
-    let newTxId = 1;
-    if (lastTransaction && lastTransaction.transaction_id) {
-      const lastIdNum = parseInt(lastTransaction.transaction_id.replace(/\D/g, ""), 10) || 0;
-      newTxId = lastIdNum + 1;
-    }
+    const debitTxId = await generateTransactionId("TRF_D");
+    const creditTxId = await generateTransactionId("TRF_C");
 
     if (fromWallet === "Earnings" && toWallet === "Top Up Wallet") {
       // Create two transactions: one to debit earnings, one to credit top up
       const debitTx = new TransactionModel({
-        transaction_id: newTxId.toString(),
+        transaction_id: debitTxId,
         transaction_date: new Date(),
         member_id: memberId,
         description: `Wallet Transfer: Earnings to Top Up Wallet`,
@@ -798,7 +926,7 @@ const sendWithdrawalOTP = async (req, res) => {
       await debitTx.save();
 
       const creditTx = new TransactionModel({
-        transaction_id: (newTxId + 1).toString(),
+        transaction_id: creditTxId,
         transaction_date: new Date(),
         member_id: memberId,
         description: `Wallet Transfer: Received from Earnings`,
@@ -820,7 +948,7 @@ const sendWithdrawalOTP = async (req, res) => {
     } else if (fromWallet === "Earnings" && toWallet === "Upgrade Wallet") {
       // Create two transactions: one to debit earnings, one to credit upgrade
       const debitTx = new TransactionModel({
-        transaction_id: newTxId.toString(),
+        transaction_id: debitTxId,
         transaction_date: new Date(),
         member_id: memberId,
         description: `Wallet Transfer: Earnings to Upgrade Wallet`,
@@ -836,7 +964,7 @@ const sendWithdrawalOTP = async (req, res) => {
       await debitTx.save();
 
       const creditTx = new TransactionModel({
-        transaction_id: (newTxId + 1).toString(),
+        transaction_id: creditTxId,
         transaction_date: new Date(),
         member_id: memberId,
         description: `Wallet Transfer: Received from Earnings`,
@@ -857,7 +985,7 @@ const sendWithdrawalOTP = async (req, res) => {
 
     } else if (fromWallet === "Top Up" && toWallet === "Upgrade Wallet") {
       const tx = new TransactionModel({
-        transaction_id: newTxId.toString(),
+        transaction_id: debitTxId,
         transaction_date: new Date(),
         member_id: memberId,
         description: `Wallet Transfer: Top Up to Upgrade Wallet`,
@@ -878,7 +1006,7 @@ const sendWithdrawalOTP = async (req, res) => {
 
     } else if (fromWallet === "Upgrade" && toWallet === "Top Up Wallet") {
       const tx = new TransactionModel({
-        transaction_id: newTxId.toString(),
+        transaction_id: debitTxId,
         transaction_date: new Date(),
         member_id: memberId,
         description: `Wallet Transfer: Upgrade to Purchase Wallet`,
@@ -894,7 +1022,7 @@ const sendWithdrawalOTP = async (req, res) => {
       await tx.save();
 
       const creditTx = new TransactionModel({
-        transaction_id: (newTxId + 1).toString(),
+        transaction_id: creditTxId,
         transaction_date: new Date(),
         member_id: memberId,
         description: `Wallet Transfer: Received from Upgrade Wallet`,
@@ -1068,15 +1196,11 @@ const transferP2PWallet = async (req, res) => {
       return res.status(400).json({ success: false, message: "Insufficient Credits balance for transfer" });
     }
 
-    const lastTransaction = await TransactionModel.findOne({}).sort({ createdAt: -1 }).exec();
-    let newTxId = 1;
-    if (lastTransaction && lastTransaction.transaction_id) {
-      const lastIdNum = parseInt(lastTransaction.transaction_id.replace(/\D/g, ""), 10) || 0;
-      newTxId = lastIdNum + 1;
-    }
+    const debitTxId = await generateTransactionId("P2P_D");
+    const creditTxId = await generateTransactionId("P2P_C");
 
     const debitTx = new TransactionModel({
-      transaction_id: newTxId.toString(),
+      transaction_id: debitTxId,
       transaction_date: new Date(),
       member_id: memberId,
       description: `P2P Transfer sent to ${receiverMember.Name} (${receiverMember.Member_id})`,
@@ -1092,7 +1216,7 @@ const transferP2PWallet = async (req, res) => {
     await debitTx.save();
 
     const creditTx = new TransactionModel({
-      transaction_id: (newTxId + 1).toString(),
+      transaction_id: creditTxId,
       transaction_date: new Date(),
       member_id: receiverMember.Member_id,
       description: `P2P Transfer received from ${member.Name} (${member.Member_id})`,
@@ -1118,4 +1242,4 @@ const transferP2PWallet = async (req, res) => {
   }
 };
 
-module.exports = { getWalletOverview, getWalletWithdraw, transferWallet, sendTransferOTP, sendWithdrawalOTP, lookupMemberForTransfer, transferP2PWallet };
+module.exports = { getWalletOverview, getWalletWithdraw, transferWallet, sendTransferOTP, sendWithdrawalOTP, lookupMemberForTransfer, transferP2PWallet, getMemberWithdrawalLimits };

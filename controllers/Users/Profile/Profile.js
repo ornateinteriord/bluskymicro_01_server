@@ -47,7 +47,8 @@ const getMemberDetails = async (req, res) => {
                 { $ifNull: ["$package_value", 0] },
                 { $sum: "$addons.amount" }
               ]
-            }
+            },
+            level: { $ifNull: ["$level", 0] }
           }
         },
         {
@@ -168,21 +169,28 @@ const activateMemberPackage = async (req, res) => {
       return res.status(400).json({ success: false, message: "Member ID and package type are required" });
     }
 
-    const existingMember = await MemberModel.findOne({ Member_id: memberId });
+    const existingMember = await MemberModel.findOne({
+      $or: [{ Member_id: memberId }, { member_id: memberId }]
+    });
     if (!existingMember) {
       return res.status(404).json({ success: false, message: "Member not found" });
     }
 
-    // Dynamically accept any Ecash / BMS Plan amount or "NONE"
+    const actualMemberId = existingMember.Member_id || existingMember.member_id || memberId;
+
+    // Dynamically accept any Ecash / BMS / PKG / direct numeric amount or "NONE"
     let selectedPackage = null;
     if (packageType === "NONE") {
       selectedPackage = { name: "NONE", value: 0 };
-    } else if (packageType && (packageType.startsWith("Ecash_") || packageType.startsWith("BMS_"))) {
-      const amtStr = packageType.replace(/^(Ecash_|BMS_)/, "");
+    } else if (packageType && (packageType.startsWith("Ecash_") || packageType.startsWith("BMS_") || packageType.startsWith("PKG-") || packageType.startsWith("PKG_"))) {
+      const amtStr = packageType.replace(/^(Ecash_|BMS_|PKG-|PKG_)/, "");
       const amt = Number(amtStr);
       if (!isNaN(amt) && amt > 0) {
         selectedPackage = { name: `PKG-${amt}`, value: amt };
       }
+    } else if (!isNaN(Number(packageType)) && Number(packageType) > 0) {
+      const amt = Number(packageType);
+      selectedPackage = { name: `PKG-${amt}`, value: amt };
     }
 
     if (!selectedPackage) {
@@ -193,10 +201,10 @@ const activateMemberPackage = async (req, res) => {
 
     // ── CASE A: Activation WITHOUT Package ──
     if (selectedPackage.name === "NONE") {
-      console.log(`👤 [Activation] Activating ${memberId} WITHOUT package.`);
+      console.log(`👤 [Activation] Activating ${actualMemberId} WITHOUT package.`);
 
       const updatedMember = await MemberModel.findOneAndUpdate(
-        { Member_id: memberId },
+        { $or: [{ Member_id: actualMemberId }, { member_id: actualMemberId }] },
         {
           status: "active",
           Date_of_joining: activationDate
@@ -207,23 +215,30 @@ const activateMemberPackage = async (req, res) => {
       return res.status(200).json({
         success: true,
         data: updatedMember,
+        commissions: [],
+        totalCommission: 0,
         message: "Member activated successfully without a package."
       });
     }
 
     // ── CASE B: Activation WITH Package ──
     const amount = selectedPackage.value;
-    console.log(`💎 [Activation] Activating ${memberId} WITH ₹${amount} package.`);
+    console.log(`💎 [Activation] Activating ${actualMemberId} WITH ₹${amount} package.`);
 
-    // 1. Update member_tbl basic status
+    // 1. Update member_tbl basic status & ROI settings
     const updatedMember = await MemberModel.findOneAndUpdate(
-      { Member_id: memberId },
+      { $or: [{ Member_id: actualMemberId }, { member_id: actualMemberId }] },
       {
         status: "active",
         spackage: selectedPackage.name,
         package_value: amount,
         upgrade_status: "Active", // Activated with package
         Date_of_joining: activationDate,
+        roi_status: "Active",
+        roi_payout_target: 200,
+        roi_payout_count: 0,
+        roi_start_date: activationDate,
+        roi_last_payout_date: null,
       },
       { new: true }
     );
@@ -232,30 +247,14 @@ const activateMemberPackage = async (req, res) => {
       return res.status(404).json({ success: false, message: "Member not found" });
     }
 
-    // 2. ✅ STORE IN ADD_ON PACKAGE TABLE (as requested)
-    const newAddOn = new AddOnPackageModel({
-      package_id: `PKG-P-${Date.now()}`, // P for Primary
-      member_id: memberId,
-      amount: amount,
-      roi_status: "Active",
-      roi_payout_target: 200,
-      roi_payout_count: 0,
-      roi_start_date: activationDate,
-      roi_last_payout_date: null,
-      admin_id: req.user.id || "ADMIN"
-    });
-    await newAddOn.save();
-
-
-
-    // 3. ✅ CREATE "DAY 0" PAYOUT AND TRANSACTION (₹0 records)
+    // 2. ✅ CREATE "DAY 0" PAYOUT AND TRANSACTION (₹0 records)
     const payoutId = Date.now() + Math.floor(Math.random() * 1000);
     const payout = new PayoutModel({
       payout_id: payoutId,
       date: moment().utcOffset("+05:30").toDate(),
-      memberId: memberId,
+      memberId: actualMemberId,
       payout_type: "ROI (Primary)",
-      ref_no: `ACT-P-${newAddOn.package_id}-0`,
+      ref_no: `ACT-P-${actualMemberId}-0`,
       amount: 0,
       count: 0,
       days: 300,
@@ -266,9 +265,9 @@ const activateMemberPackage = async (req, res) => {
     const activationTx = new TransactionModel({
       transaction_id: `ACT-P-TX-${payoutId}`,
       transaction_date: activationDate,
-      member_id: memberId,
-      Name: updatedMember.Name,
-      mobileno: updatedMember.mobileno,
+      member_id: actualMemberId,
+      Name: updatedMember.Name || updatedMember.name,
+      mobileno: updatedMember.mobileno || updatedMember.contactno,
       description: `Package Activation – Day 0/300 (₹${amount} pkg)`,
       transaction_type: "ROI Payout",
       ew_credit: "0",
@@ -282,19 +281,34 @@ const activateMemberPackage = async (req, res) => {
 
     // 4. ✅ Trigger MLM level commissions
     try {
-      req.body.new_member_id = memberId;
-      req.body.Sponsor_code = updatedMember.Sponsor_code;
+      const sponsorCode = updatedMember.Sponsor_code || updatedMember.sponsor_id || existingMember.Sponsor_code || existingMember.sponsor_id;
+      req.body.new_member_id = actualMemberId;
+      req.body.Sponsor_code = sponsorCode;
 
-      const mlmResult = await triggerMLMCommissions(req, {
-        status: (code) => ({ json: (data) => data }),
-        json: (data) => data
-      });
+      let mlmData = null;
+      if (sponsorCode) {
+        await triggerMLMCommissions(req, {
+          status: (code) => ({
+            json: (data) => { mlmData = data; return data; }
+          }),
+          json: (data) => { mlmData = data; return data; }
+        });
+      }
+
+      const commissions = mlmData?.commissions || mlmData?.data?.commissions || [];
+      const totalCommission = mlmData?.totalCommission || mlmData?.data?.totalCommission || 0;
 
       return res.status(200).json({
         success: true,
-        data: updatedMember,
+        data: {
+          ...(updatedMember.toObject ? updatedMember.toObject() : updatedMember),
+          commissions,
+          totalCommission
+        },
+        commissions,
+        totalCommission,
         message: `${selectedPackage.name} activated and stored in add-on table.`,
-        mlm_result: mlmResult
+        mlm_result: mlmData
       });
     } catch (mlmError) {
       console.error("❌ MLM Error during activation:", mlmError);
@@ -302,7 +316,9 @@ const activateMemberPackage = async (req, res) => {
         success: true,
         data: updatedMember,
         message: "Member activated with package, but referral update failed.",
-        mlm_error: mlmError.message
+        mlm_error: mlmError.message,
+        commissions: [],
+        totalCommission: 0
       });
     }
 
@@ -323,8 +339,16 @@ const getMember = async (req, res) => {
         .status(403)
         .json({ success: false, message: "Access Denied", });
     }
-    const memberId = req.params.memberId
-    const member = await MemberModel.findOne({ Member_id: memberId })
+    const memberId = req.params.memberId;
+    const member = await MemberModel.findOne({
+      $or: [
+        { Member_id: memberId },
+        { member_id: memberId },
+        { mobileno: memberId },
+        { contactno: memberId },
+        { member_code: memberId }
+      ]
+    });
     if (!member) {
       return res
         .status(404)
@@ -334,7 +358,7 @@ const getMember = async (req, res) => {
   } catch (error) {
     return res.status(500).json({ success: false, message: "Server error" });
   }
-}
+};
 
 const UpdateMemberDetails = async (req, res) => {
   try {
@@ -429,7 +453,7 @@ const updateMemberStatus = async (req, res) => {
     if (mongoose.Types.ObjectId.isValid(memberId)) {
       query = { _id: memberId };
     } else {
-      query = { Member_id: memberId };
+      query = { $or: [{ Member_id: memberId }, { member_id: memberId }] };
     }
 
     const existingMember = await MemberModel.findOne(query);

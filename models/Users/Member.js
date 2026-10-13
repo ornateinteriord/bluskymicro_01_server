@@ -61,6 +61,7 @@ const MemberSchema = new mongoose.Schema(
     sponsor_id: { type: String, default: null },
     direct_referrals: { type: [String], default: [] },
     total_team: { type: Number, default: 0 },
+    level: { type: Number, default: 0 },
     // KYC fields
     kycStatus: {
       type: String,

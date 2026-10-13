@@ -637,6 +637,61 @@ const createMemberAccount = async (req, res) => {
     }
 };
 
+const getMemberCommissionTransactions = async (req, res) => {
+    try {
+        const { memberId } = req.params;
+
+        if (!memberId) {
+            return res.status(400).json({
+                success: false,
+                message: "Member ID is required"
+            });
+        }
+
+        const member = await MemberModel.findOne({
+            $or: [{ member_id: memberId }, { Member_id: memberId }]
+        });
+
+        const CommissionModel = require("../../models/commission.model");
+        const commissions = await CommissionModel.find({
+            $or: [{ beneficiary_id: memberId }, { beneficiary_id: String(memberId) }]
+        }).sort({ createdAt: -1 });
+
+        const totalEarned = commissions
+            .filter(c => c.status === "CREDITED")
+            .reduce((sum, c) => sum + (Number(c.commission_amount) || 0), 0);
+
+        const totalPending = commissions
+            .filter(c => c.status === "PENDING")
+            .reduce((sum, c) => sum + (Number(c.commission_amount) || 0), 0);
+
+        const totalWithdrawn = commissions
+            .filter(c => c.status === "WITHDRAWN")
+            .reduce((sum, c) => sum + (Number(c.commission_amount) || 0), 0);
+
+        res.status(200).json({
+            success: true,
+            message: "Commission transactions fetched successfully",
+            data: {
+                transactions: commissions,
+                summary: {
+                    totalEarned,
+                    totalPending,
+                    totalWithdrawn,
+                    availableBalance: totalEarned - totalWithdrawn
+                }
+            }
+        });
+    } catch (error) {
+        console.error("Error fetching member commission transactions:", error);
+        res.status(500).json({
+            success: false,
+            message: "Failed to fetch commission transactions",
+            error: error.message
+        });
+    }
+};
+
 module.exports = {
     getMyAccounts,
     updateMyProfile,
@@ -645,5 +700,6 @@ module.exports = {
     getMemberTransactions,
     getMemberAccountGroups,
     getMemberInterestsByAccountGroup,
-    createMemberAccount
+    createMemberAccount,
+    getMemberCommissionTransactions
 };

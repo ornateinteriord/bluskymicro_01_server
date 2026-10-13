@@ -51,8 +51,9 @@ const triggerMLMCommissions = async (req, res) => {
     }
 
     // Find new member
-    const newMember = await MemberModel.findOne({ Member_id: new_member_id });
-    // console.log("📘 Found New Member:", newMember);
+    const newMember = await MemberModel.findOne({
+      $or: [{ Member_id: new_member_id }, { member_id: new_member_id }]
+    });
 
     if (!newMember) {
       return res.status(404).json({
@@ -61,15 +62,22 @@ const triggerMLMCommissions = async (req, res) => {
       });
     }
 
-    if (newMember.status !== "active") {
+    if (String(newMember.status || "").toLowerCase() !== "active") {
       return res.status(400).json({
         success: false,
         message: `Member status must be active, current status: ${newMember.status}`
       });
     }
 
-    // Find sponsor using Member_id instead of member_code
-    const sponsor = await MemberModel.findOne({ Member_id: Sponsor_code });
+    // Find sponsor using flexible lookup
+    const sponsor = await MemberModel.findOne({
+      $or: [
+        { Member_id: Sponsor_code },
+        { member_id: Sponsor_code },
+        { member_code: Sponsor_code },
+        { mobileno: Sponsor_code }
+      ]
+    });
     console.log("📗 Found Sponsor:", sponsor);
 
     if (!sponsor) {
@@ -79,43 +87,59 @@ const triggerMLMCommissions = async (req, res) => {
       });
     }
 
+    const actualMemberId = newMember.Member_id || newMember.member_id;
+    const actualSponsorId = sponsor.Member_id || sponsor.member_id;
+
     // Update member's sponsor details if needed
-    if (newMember.sponsor_id !== sponsor.Member_id) {
+    if (newMember.sponsor_id !== actualSponsorId) {
       await MemberModel.findOneAndUpdate(
-        { Member_id: new_member_id },
+        { $or: [{ Member_id: actualMemberId }, { member_id: actualMemberId }] },
         {
-          sponsor_id: sponsor.Member_id,
-          Sponsor_code: sponsor.Member_id,
-          Sponsor_name: sponsor.Name
+          sponsor_id: actualSponsorId,
+          Sponsor_code: actualSponsorId,
+          Sponsor_name: sponsor.Name || sponsor.name
         }
       );
-      console.log("🔄 Updated sponsor details for new member:", new_member_id);
+      console.log("🔄 Updated sponsor details for new member:", actualMemberId);
     }
 
     // Update direct sponsor's referrals list
-    // THIS IS THE CRITICAL PART FOR HIERARCHY - ONLY THIS RUNS
-    await updateSponsorReferrals(sponsor.Member_id, new_member_id);
+    await updateSponsorReferrals(actualSponsorId, actualMemberId);
     console.log("👥 Direct sponsor referrals updated");
 
-    // Calculate and process multi-level commissions (10 levels based on percentage)
-    const commissions = await calculateCommissions(new_member_id, sponsor.Member_id);
+    // Calculate and process multi-level commissions (7 levels based on percentage)
+    const packageAmount = Number(newMember.package_value || newMember.spackage || 0);
+    const commissions = await calculateCommissions(actualMemberId, actualSponsorId, packageAmount > 0 ? packageAmount : null);
     let commissionResults = [];
     if (commissions.length > 0) {
       commissionResults = await processCommissions(commissions);
-      console.log(`💰 Processed ${commissionResults.length} commissions for new member ${new_member_id}`);
+      console.log(`💰 Processed ${commissionResults.length} commissions for new member ${actualMemberId}`);
     } else {
-      console.log(`⚠️ No commissions generated for new member ${new_member_id}`);
+      console.log(`⚠️ No commissions generated for new member ${actualMemberId}`);
     }
+
+    const formattedCommissions = commissions.map(c => ({
+      level: c.level,
+      memberId: c.sponsor_id,
+      memberName: c.sponsor_name,
+      commissionType: c.payout_type || `Level ${c.level} Commission`,
+      amount: Number(c.amount || 0)
+    }));
+    const totalCommission = formattedCommissions.reduce((sum, c) => sum + (c.amount || 0), 0);
 
     return res.status(200).json({
       success: true,
       message: "Referral hierarchy and commissions updated successfully",
       data: {
-        new_member: { id: new_member_id },
-        sponsor: { id: sponsor.Member_id },
+        new_member: { id: actualMemberId },
+        sponsor: { id: actualSponsorId },
         commissions_generated: commissions.length,
-        commissions_processed: commissionResults.filter(r => r.success).length
-      }
+        commissions_processed: commissionResults.filter(r => r.success).length,
+        commissions: formattedCommissions,
+        totalCommission
+      },
+      commissions: formattedCommissions,
+      totalCommission
     });
 
   } catch (error) {
@@ -131,112 +155,83 @@ const triggerMLMCommissions = async (req, res) => {
 
 const getMemberCommissionSummary = async (req, res) => {
   try {
-    return res.json({
-      success: true,
-      data: {
-        member_id: req.params.member_id,
-        message: "Commission system is disabled",
-        total_earnings: 0,
-        level_breakdown: {},
-        level_payouts: {},
-        upline_tree: [],
-        commission_rates: {},
-        recent_payouts: [],
-        recent_level_benefits: []
-      }
+    const member_id = req.params.member_id || req.user?.memberId;
+
+    if (!member_id) {
+      return res.status(400).json({ success: false, message: "Member ID is required" });
+    }
+
+    // Get member from MemberModel
+    const member = await MemberModel.findOne({
+      $or: [{ Member_id: member_id }, { member_id: member_id }]
     });
-    /*
-    const { member_id } = req.params;
 
     // Get all payouts and transactions for the member
-    const payouts = await PayoutModel.find({ memberId: member_id });
-    const transactions = await TransactionModel.find({ member_id: member_id });
+    const payouts = await PayoutModel.find({
+      $or: [{ memberId: member_id }, { sponsor_id: member_id }]
+    }).sort({ createdAt: -1 });
+
+    const transactions = await TransactionModel.find({
+      $or: [{ member_id: member_id }]
+    }).sort({ createdAt: -1 });
 
     // Calculate level earnings from payouts
     const levelEarnings = {};
-    for (let level = 1; level <= 10; level++) {
-      const levelPayouts = payouts.filter((p) => p.level === level);
-      const levelAmount = levelPayouts.reduce((sum, p) => sum + p.amount, 0);
+    let totalEarnings = 0;
 
+    for (let level = 1; level <= 7; level++) {
+      const levelPayouts = payouts.filter((p) => p.level === level);
+      const levelAmount = levelPayouts.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+      totalEarnings += levelAmount;
+
+      const rate = level === 1 ? 10 : (level === 2 ? 3 : (level === 3 ? 2 : 1));
       levelEarnings[`level_${level}`] = {
         count: levelPayouts.length,
-        amount: levelAmount,
-        type: `${getOrdinal(level)} Level Benefits`,
-        rate: commissionRates[level] || 0,
+        amount: Number(levelAmount.toFixed(2)),
+        type: level === 1 ? "Direct Referral Bonus" : `Level ${level} Bonus`,
+        rate: `${rate}%`,
       };
     }
 
-    // ✅ Get ALL level benefits from transactions (not just total)
-    const levelBenefitsFromTx = {};
-    let totalLevelBenefits = 0;
-
-    for (let level = 1; level <= 10; level++) {
-      const levelTransactions = transactions.filter(
-        (tx) => tx.transaction_type === "Level Benefits" && tx.level === level
-      );
-
-      const levelAmount = levelTransactions.reduce(
-        (sum, tx) => sum + (tx.ew_credit || 0),
-        0
-      );
-      totalLevelBenefits += levelAmount;
-
-      levelBenefitsFromTx[`level_${level}`] = {
-        count: levelTransactions.length,
-        amount: levelAmount,
-        type: `${getOrdinal(level)} Level Benefits`,
-        rate: commissionRates[level] || 0,
-        transactions: levelTransactions.slice(0, 5), // Recent 5 transactions for this level
-      };
-    }
-
-    // ✅ Get member data from Transaction table
-    const memberTransaction = await TransactionModel.findOne({
-      member_id: member_id,
-    });
-
-    // ✅ Get upline tree with active status information
-    const uplineTree = await getUplineTree(member_id, 10);
+    // Get upline tree
+    const uplineTree = await getUplineTree(member_id, 7);
 
     return res.json({
       success: true,
       data: {
         member_id,
-        member_name: memberTransaction?.Name || memberTransaction?.member_name,
-        member_code: memberTransaction?.member_code,
-        mobile: memberTransaction?.mobileno || memberTransaction?.mobile,
-        email: memberTransaction?.email,
-        sponsor_code: memberTransaction?.Sponsor_code,
-        sponsor_name: memberTransaction?.Sponsor_name,
-        direct_referrals: memberTransaction?.direct_referrals?.length || 0,
-        total_team: memberTransaction?.total_team || 0,
-        total_earnings: totalLevelBenefits,
-        level_breakdown: levelBenefitsFromTx, // Using transaction-based data
-        level_payouts: levelEarnings, // Payout-based data for comparison
+        member_name: member?.Name || member?.name || "Member",
+        member_code: member?.member_code,
+        mobile: member?.mobileno || member?.contactno,
+        email: member?.email,
+        sponsor_code: member?.Sponsor_code || member?.sponsor_id,
+        sponsor_name: member?.Sponsor_name,
+        direct_referrals: member?.direct_referrals?.length || 0,
+        total_team: member?.total_team || 0,
+        total_earnings: Number(totalEarnings.toFixed(2)),
+        wallet_balance: member?.wallet_balance || 0,
+        level_breakdown: levelEarnings,
         upline_tree: uplineTree,
-        commission_rates: commissionRates,
         recent_payouts: payouts.slice(0, 10).map((p) => ({
           date: p.date,
           type: p.payout_type,
           amount: p.amount,
           level: p.level,
-          from_member: p.sponsored_member_id,
+          from_member: p.sponsored_member_id || p.ref_no,
           status: p.status,
         })),
-        // ✅ Additional: Recent level benefit transactions
         recent_level_benefits: transactions
-          .filter((tx) => tx.transaction_type === "Level Benefits")
+          .filter((tx) => tx.transaction_type === "Referral Bonus" || tx.transaction_type === "Level Bonus")
           .slice(0, 10)
           .map((tx) => ({
-            date: tx.date,
-            amount: tx.ew_credit,
+            date: tx.transaction_date,
+            amount: parseFloat(tx.ew_credit) || 0,
             level: tx.level,
-            from_member: tx.from_member_id,
+            from_member: tx.related_member_id,
             description: tx.description,
           })),
       },
     });
-    */
   } catch (error) {
     console.error("Error getting commission summary:", error);
     return res.status(500).json({ success: false, error: "Server error" });
@@ -255,7 +250,7 @@ const getDailyPayout = async (req, res) => {
       const pad5 = String(numericPart).padStart(5, '0');
       const pad6 = String(numericPart).padStart(6, '0');
       const possibleIds = [member_id, member_id.replace('BMS', ''), `BMS${pad5}`, `BMS${pad6}`, pad5, pad6, `BMS${numericPart}`];
-      
+
       if (userRole === "ADMIN") {
         query = { member_id: { $in: possibleIds } };
       } else if (userRole === "USER") {
@@ -331,50 +326,50 @@ const getROIBenefits = async (req, res) => {
 
     // Filter strictly for ROI Level Benefits with related member name population
     const transactions = await TransactionModel.aggregate([
-      { 
+      {
         $match: {
           ...query,
-    transaction_type: "ROI Level Benefit",
+          transaction_type: "ROI Level Benefit",
         }
       },
-{
+      {
         $lookup: {
-    from: "member_tbl",
-      localField: "related_member_id",
-        foreignField: "Member_id",
+          from: "member_tbl",
+          localField: "related_member_id",
+          foreignField: "Member_id",
           as: "related_member"
-  }
-},
-{
+        }
+      },
+      {
         $addFields: {
-    related_member_name: {
+          related_member_name: {
             $ifNull: [
-        "$related_member_name",
-        { $arrayElemAt: ["$related_member.Name", 0] }
-      ]
-    }
-  }
-},
-{
+              "$related_member_name",
+              { $arrayElemAt: ["$related_member.Name", 0] }
+            ]
+          }
+        }
+      },
+      {
         $project: {
-    related_member: 0
-  }
-},
-{ $sort: { transaction_date: -1, createdAt: -1 } }
+          related_member: 0
+        }
+      },
+      { $sort: { transaction_date: -1, createdAt: -1 } }
     ]);
 
-return res.status(200).json({
-  success: true,
-  data: { roi_benefits: transactions },
-});
+    return res.status(200).json({
+      success: true,
+      data: { roi_benefits: transactions },
+    });
   } catch (error) {
-  console.error("Error in getROIBenefits:", error);
-  return res.status(500).json({
-    success: false,
-    message: "Server error",
-    error: error.message,
-  });
-}
+    console.error("Error in getROIBenefits:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: error.message,
+    });
+  }
 };
 
 const getROISummary = async (req, res) => {
@@ -390,44 +385,44 @@ const getROISummary = async (req, res) => {
 
     // 2. Today's Payouts
     const todaysPayoutsResult = await TransactionModel.aggregate([
-      { 
+      {
         $match: {
-  transaction_type: "ROI Payout",
-    status: "Completed",
-      transaction_date: todayStr
-} 
+          transaction_type: "ROI Payout",
+          status: "Completed",
+          transaction_date: todayStr
+        }
       },
-{ $group: { _id: null, total: { $sum: { $toDouble: "$ew_credit" } }, count: { $sum: 1 } } }
+      { $group: { _id: null, total: { $sum: { $toDouble: "$ew_credit" } }, count: { $sum: 1 } } }
     ]);
-const todaysTotal = todaysPayoutsResult[0]?.total || 0;
-const todaysCount = todaysPayoutsResult[0]?.count || 0;
+    const todaysTotal = todaysPayoutsResult[0]?.total || 0;
+    const todaysCount = todaysPayoutsResult[0]?.count || 0;
 
-// 3. Active ROI Contracts
+    // 3. Active ROI Contracts
 
 
-const activeContractsCount = await MemberModel.countDocuments({
-  status: "active",
-  roi_status: "Active"
-});
+    const activeContractsCount = await MemberModel.countDocuments({
+      status: "active",
+      roi_status: "Active"
+    });
 
-return res.status(200).json({
-  success: true,
-  data: {
-    totalROIDistributed,
-    todaysTotal,
-    todaysCount,
-    activeContractsCount,
-    lastUpdated: new Date().toISOString()
-  }
-});
+    return res.status(200).json({
+      success: true,
+      data: {
+        totalROIDistributed,
+        todaysTotal,
+        todaysCount,
+        activeContractsCount,
+        lastUpdated: new Date().toISOString()
+      }
+    });
   } catch (error) {
-  console.error("Error in getROISummary:", error);
-  return res.status(500).json({
-    success: false,
-    message: "Server error",
-    error: error.message,
-  });
-}
+    console.error("Error in getROISummary:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: error.message,
+    });
+  }
 };
 
 

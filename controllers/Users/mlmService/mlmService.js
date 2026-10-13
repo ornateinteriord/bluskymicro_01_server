@@ -46,6 +46,7 @@ const getOrdinal = (number) => {
 
 const findUplineSponsors = async (memberId, maxLevels = 15) => {
   const uplineSponsors = [];
+  const visited = new Set([String(memberId)]);
   let currentMemberId = memberId;
   let level = 0;
 
@@ -54,35 +55,41 @@ const findUplineSponsors = async (memberId, maxLevels = 15) => {
       $or: [{ Member_id: currentMemberId }, { member_id: currentMemberId }]
     });
 
-const sponsorIdentifier = currentMember?.sponsor_id || currentMember?.Sponsor_code || currentMember?.introducer;
-if (!currentMember || !sponsorIdentifier) {
-  break; // No more sponsors in the chain
-}
+    const sponsorIdentifier = currentMember?.sponsor_id || currentMember?.Sponsor_code || currentMember?.introducer;
+    if (!currentMember || !sponsorIdentifier || String(sponsorIdentifier) === String(currentMemberId)) {
+      break; // No more sponsors or self-referral
+    }
 
-const sponsor = await MemberModel.findOne({
-      $or: [{ Member_id: sponsorIdentifier }, { member_id: sponsorIdentifier }, { member_code: sponsorIdentifier }]
+    const sponsor = await MemberModel.findOne({
+      $or: [{ Member_id: sponsorIdentifier }, { member_id: sponsorIdentifier }, { member_code: sponsorIdentifier }, { mobileno: sponsorIdentifier }]
     });
-if (!sponsor) {
-  break; // Sponsor not found
-}
+    if (!sponsor) {
+      break; // Sponsor not found
+    }
 
-level++;
-uplineSponsors.push({
-  level: level,
-  sponsor_id: sponsor.Member_id,
-  Sponsor_code: sponsor.member_code || sponsor.Member_id,
-  sponsor_name: sponsor.Name,
-  sponsor_mobileno: sponsor.mobileno,
-  sponsored_member_id: currentMemberId, // The member who triggered this commission
-  sponsor_status: sponsor.status
-});
+    const sponsorActualId = String(sponsor.Member_id || sponsor.member_id);
+    if (visited.has(sponsorActualId)) {
+      console.warn(`⚠️ Circular referral detected in upline tree at level ${level + 1} for ${sponsorActualId}. Stopping tree traversal.`);
+      break;
+    }
+    visited.add(sponsorActualId);
 
-// Move up the chain
-currentMemberId = sponsor.Member_id || sponsor.member_id;
+    level++;
+    uplineSponsors.push({
+      level: level,
+      sponsor_id: sponsor.Member_id || sponsor.member_id,
+      Sponsor_code: sponsor.member_code || sponsor.Member_id,
+      sponsor_name: sponsor.Name || sponsor.name,
+      sponsor_mobileno: sponsor.mobileno || sponsor.contactno,
+      sponsored_member_id: currentMemberId, // The member who triggered this commission
+      sponsor_status: sponsor.status
+    });
+
+    // Move up the chain
+    currentMemberId = sponsor.Member_id || sponsor.member_id;
   }
 
-// console.log(`📊 Found ${uplineSponsors.length} upline sponsors for member ${memberId}`);
-return uplineSponsors;
+  return uplineSponsors;
 };
 
 
@@ -113,8 +120,9 @@ const calculateCommissions = async (newMemberId, directSponsorId, specificAmount
 
     // Process each upline sponsor
     for (const upline of uplineSponsors) {
-      // Only active sponsors are eligible for commissions
-      if (upline.sponsor_status !== 'active') {
+      // Only active sponsors are eligible for commissions (case-insensitive)
+      const isActive = String(upline.sponsor_status || "").toLowerCase() === "active";
+      if (!isActive) {
         continue;
       }
 
@@ -364,48 +372,58 @@ console.log(`✅ Updated referrals for ${sponsorId}: Added ${newMemberId}`);
 }
 };
 
-const getUplineTree = async (memberId, maxLevels = 15) => {
-  return []; // DISABLED
-  /*
+const getUplineTree = async (memberIdOrReq, maxLevelsOrRes = 15) => {
+  const isExpressHandler = Boolean(
+    memberIdOrReq &&
+    typeof memberIdOrReq === 'object' &&
+    memberIdOrReq.params !== undefined &&
+    maxLevelsOrRes &&
+    typeof maxLevelsOrRes.json === 'function'
+  );
+
+  let memberId;
+  let maxLevels = 15;
+  let res = null;
+
+  if (isExpressHandler) {
+    const req = memberIdOrReq;
+    res = maxLevelsOrRes;
+    memberId = req.params?.id || req.user?.memberId;
+  } else {
+    memberId = memberIdOrReq;
+    maxLevels = typeof maxLevelsOrRes === 'number' ? maxLevelsOrRes : 15;
+  }
+
   try {
-    const tree = [];
-    let currentMemberId = memberId;
-    let level = 0;
+    const uplines = await findUplineSponsors(memberId, maxLevels);
+    const tree = uplines.map((u) => {
+      const rate = u.level === 1
+        ? (referralCommissionPercentages[1] || 0)
+        : (levelBenefitsPercentages[u.level] || 0);
 
-    while (level < maxLevels) {
-      const currentMember = await MemberModel.findOne({ Member_id: currentMemberId });
+      const isActive = String(u.sponsor_status || "").toLowerCase() === "active";
+      return {
+        level: u.level,
+        member_id: u.sponsor_id,
+        name: u.sponsor_name,
+        member_code: u.Sponsor_code,
+        status: u.sponsor_status,
+        commission_rate: rate,
+        eligible: isActive
+      };
+    });
 
-      if (!currentMember || !currentMember.sponsor_id) {
-        break;
-      }
-
-      const sponsor = await MemberModel.findOne({ Member_id: currentMember.sponsor_id });
-      if (sponsor) {
-        level++;
-        tree.push({
-          level: level,
-          member_id: sponsor.Member_id,
-          name: sponsor.Name,
-          member_code: sponsor.member_code,
-          status: sponsor.status,
-          direct_referrals: sponsor.direct_referrals || [],
-          total_team: sponsor.total_team || 0,
-          commission_rate: commissionRates[level],
-          eligible: sponsor.status === 'active'
-        });
-
-        currentMemberId = sponsor.Member_id;
-      } else {
-        break;
-      }
+    if (isExpressHandler) {
+      return res.status(200).json({ success: true, data: tree });
     }
-
     return tree;
   } catch (error) {
     console.error("❌ Error getting upline tree:", error);
-    throw error;
+    if (isExpressHandler) {
+      return res.status(500).json({ success: false, message: error.message });
+    }
+    return [];
   }
-  */
 };
 
 const getCommissionSummary = () => {

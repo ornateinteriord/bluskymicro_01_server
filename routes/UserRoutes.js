@@ -11,8 +11,9 @@ const { getMultiLevelSponsorship } = require("../controllers/Users/Sponser/multi
 const { createTicket, getTickets } = require("../controllers/Users/Ticket/TicketConntroller");
 const Authenticated = require("../middlewares/auth");
 const {  triggerMLMCommissions, getMemberCommissionSummary, getDailyPayout, climeRewardLoan, repaymentLoan, getROIBenefits, triggerUserROI } = require("../controllers/Users/Payout/PayoutController");
-const { getPendingTransactions, approveWithdrawal } = require("../controllers/Users/payoutPending/pendingTransactions");
+const { getPendingTransactions, approveWithdrawal, rejectWithdrawal } = require("../controllers/Users/payoutPending/pendingTransactions");
 const { getWalletOverview, getWalletWithdraw, transferWallet, sendTransferOTP, sendWithdrawalOTP, lookupMemberForTransfer, transferP2PWallet } = require("../controllers/Users/walletServiece/walletServies");
+const { getMemberCommissionTransactions } = require("../controllers/Member");
 const { getUplineTree } = require("../controllers/Users/mlmService/mlmService");
 // const { createOrder, getOrderStatus, webhook } = require("../controllers/Payments/CashfreeController");
 
@@ -23,6 +24,7 @@ const router = express.Router();
 
 
 router.get("/member/:id", Authenticated, getMemberDetails);
+router.get("/get-commission-transactions/:memberId", Authenticated, getMemberCommissionTransactions);
 router.put("/member/:memberId", Authenticated, UpdateMemberDetails);
 router.put("/activate-package/:memberId", Authenticated, activateMemberPackage);
 
@@ -57,6 +59,7 @@ router.post("/transfer-wallet/send-otp", Authenticated, sendTransferOTP);
 router.get("/transfer-lookup", Authenticated, lookupMemberForTransfer);
 router.post("/transfer-p2p", Authenticated, transferP2PWallet);
 router.put('/approve-withdrawal/:transaction_id', Authenticated, approveWithdrawal);
+router.put('/reject-withdrawal/:transaction_id', Authenticated, rejectWithdrawal);
 
 
 router.get("/level-benefits/:member_id", Authenticated, getMemberCommissionSummary);

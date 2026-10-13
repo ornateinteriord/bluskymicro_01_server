@@ -192,9 +192,13 @@ const getMembers = async (req, res) => {
         if (search) {
             filter.$or = [
                 { member_id: { $regex: search, $options: "i" } },
+                { Member_id: { $regex: search, $options: "i" } },
                 { name: { $regex: search, $options: "i" } },
+                { Name: { $regex: search, $options: "i" } },
                 { contactno: { $regex: search, $options: "i" } },
-                { emailid: { $regex: search, $options: "i" } }
+                { mobileno: { $regex: search, $options: "i" } },
+                { emailid: { $regex: search, $options: "i" } },
+                { email: { $regex: search, $options: "i" } }
             ];
         }
 

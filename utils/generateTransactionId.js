@@ -1,23 +1,30 @@
-const TransactionModel = require("../models/transaction.model");
+const TransactionModel = require("../models/Transaction/Transaction");
+const NidhiTransactionModel = require("../models/transaction.model");
 
 /**
- * Generate a unique transaction ID using timestamp
- * Format: TXN_{timestamp}_{random}
+ * Generate a unique transaction ID using timestamp and high entropy
+ * Format: {prefix}_{timestamp}_{random}
  */
-const generateTransactionId = async () => {
-    // Use timestamp + random to avoid duplicates
-    const timestamp = Date.now();
-    const random = Math.floor(Math.random() * 1000);
-    const newTransactionId = `TXN_${timestamp}_${random}`;
+const generateTransactionId = async (prefix = "TXN") => {
+    let attempts = 0;
+    while (attempts < 5) {
+        const timestamp = Date.now();
+        const random = Math.floor(100000 + Math.random() * 900000);
+        const newTransactionId = `${prefix}_${timestamp}_${random}`;
 
-    // Verify it doesn't exist (unlikely but safe)
-    const existing = await TransactionModel.findOne({ transaction_id: newTransactionId });
-    if (existing) {
-        // If by chance it exists, add more randomness
-        return `TXN_${timestamp}_${random}_${Math.floor(Math.random() * 10000)}`;
+        // Verify it doesn't exist in either model
+        const [existing1, existing2] = await Promise.all([
+            TransactionModel.findOne({ transaction_id: newTransactionId }),
+            NidhiTransactionModel.findOne({ transaction_id: newTransactionId })
+        ]);
+
+        if (!existing1 && !existing2) {
+            return newTransactionId;
+        }
+        attempts++;
     }
 
-    return newTransactionId;
+    return `${prefix}_${Date.now()}_${Math.random().toString(36).substring(2, 9).toUpperCase()}`;
 };
 
 module.exports = generateTransactionId;

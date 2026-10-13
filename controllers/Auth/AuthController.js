@@ -78,30 +78,67 @@ const signup = async (req, res) => {
 
     // Find the sponsor if provided
     let sponsor = null;
-    if (sponsorId) {
-      sponsor = await MemberModel.findOne({ Member_id: sponsorId });
+    const resolvedSponsorId = String(sponsorId || otherDetails.sponsor_id || otherDetails.Sponsor_code || otherDetails.introducer || "").trim();
+
+    if (resolvedSponsorId) {
+      if (resolvedSponsorId === memberId || (mobileNumber && resolvedSponsorId === mobileNumber)) {
+        return res.status(400).json({ success: false, message: "You cannot sponsor yourself. Please enter a valid sponsor ID." });
+      }
+
+      sponsor = await MemberModel.findOne({
+        $or: [
+          { Member_id: resolvedSponsorId },
+          { member_id: resolvedSponsorId },
+          { mobileno: resolvedSponsorId },
+          { member_code: resolvedSponsorId }
+        ]
+      });
+
+      if (!sponsor) {
+        const AgentModel = require("../../models/agent.model");
+        const agent = await AgentModel.findOne({ agent_id: resolvedSponsorId });
+        if (agent) {
+          sponsor = {
+            Member_id: agent.agent_id,
+            Name: agent.name,
+            status: agent.status || "active"
+          };
+        }
+      }
+
       if (!sponsor) {
         return res.status(400).json({ success: false, message: "Invalid sponsor ID" });
       }
     }
 
+    const finalSponsorId = sponsor ? (sponsor.Member_id || sponsor.member_id || resolvedSponsorId) : null;
+    const finalSponsorName = sponsor ? (sponsor.Name || sponsor.name) : null;
+
     let memberData = {
       Member_id: memberId,
+      member_id: memberId,
       member_code: memberCode,
       qr_code: `BMS-P2P:${memberId}`,
       email,
+      emailid: email,
       password,
       Name,
-
-      // Assign sponsor if provided
-      sponsor_id: sponsorId || null,
-      Sponsor_code: sponsorId || null,
-      Sponsor_name: sponsor ? sponsor.Name : null,
-
-      introducer: sponsorId || null,
-      introducer_name: sponsor ? sponsor.Name : null,
+      name: Name,
+      mobileno: mobileNumber || memberId,
+      contactno: mobileNumber || memberId,
 
       ...otherDetails,
+
+      // Assign sponsor if provided (must override otherDetails)
+      sponsor_id: finalSponsorId,
+      Sponsor_code: finalSponsorId,
+      Sponsor_name: finalSponsorName,
+
+      introducer: finalSponsorId,
+      introducer_name: finalSponsorName,
+
+      status: "Pending",
+      commission_eligible: true,
     };
 
     // Automatically build introducer hierarchy
@@ -111,10 +148,10 @@ const signup = async (req, res) => {
     await newMember.save();
 
     // If a sponsor was provided, add this member to the sponsor's direct referrals
-    if (sponsorId) {
+    if (finalSponsorId && sponsor) {
       try {
-        await updateSponsorReferrals(sponsorId, memberId);
-        console.log(`✅ Added new member ${memberId} to sponsor ${sponsorId}'s direct referrals`);
+        await updateSponsorReferrals(finalSponsorId, memberId);
+        console.log(`✅ Added new member ${memberId} to sponsor ${finalSponsorId}'s direct referrals`);
       } catch (referralError) {
         console.error("Error updating sponsor referrals:", referralError);
       }
@@ -157,16 +194,37 @@ const signup = async (req, res) => {
 const getSponsorDetails = async (req, res) => {
   try {
     const { ref } = req.params;
-    const sponsor = await MemberModel.findOne({ Member_id: ref });
+    const cleanRef = String(ref || "").trim();
+
+    let sponsor = await MemberModel.findOne({
+      $or: [
+        { Member_id: cleanRef },
+        { member_id: cleanRef },
+        { mobileno: cleanRef },
+        { member_code: cleanRef }
+      ]
+    });
+
     if (!sponsor) {
+      const AgentModel = require("../../models/agent.model");
+      const agent = await AgentModel.findOne({ agent_id: cleanRef });
+      if (agent) {
+        return res.json({
+          success: true,
+          Member_id: agent.agent_id,
+          name: agent.name,
+          status: agent.status || "active",
+        });
+      }
       return res
         .status(404)
         .json({ success: false, message: "Invalid Sponsor Code" });
     }
+
     res.json({
       success: true,
-      Member_id: sponsor.Member_id,
-      name: sponsor.Name,
+      Member_id: sponsor.Member_id || sponsor.member_id,
+      name: sponsor.Name || sponsor.name,
       status: sponsor.status || "Pending",
     });
   } catch (error) {

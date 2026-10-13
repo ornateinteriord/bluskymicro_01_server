@@ -220,7 +220,9 @@ const createAccount = async (req, res) => {
                 const { processTransactionCommission } = require("../../../utils/commissionUtils");
 
                 // Get member details
-                const member = await MemberModel.findOne({ member_id: member_id });
+                const member = await MemberModel.findOne({
+                    $or: [{ member_id: member_id }, { Member_id: member_id }]
+                });
 
                 // Generate transaction ID
                 const transId = await generateTransactionId();
@@ -237,8 +239,8 @@ const createAccount = async (req, res) => {
                     credit: account_amount,
                     debit: 0,
                     balance: account_amount,
-                    Name: member ? member.name : null,
-                    mobileno: member ? member.contactno : null,
+                    Name: member ? (member.name || member.Name) : null,
+                    mobileno: member ? (member.contactno || member.mobileno) : null,
                     status: "Completed",
                     collected_by: entered_by
                 });
