@@ -258,11 +258,14 @@ const getDailyPayout = async (req, res) => {
       }
     }
 
-    // Filter strictly for Single Level Income payouts as requested
+    // Filter for Daily Incentive and Single Level / Line Income payouts
     const transactions = await TransactionModel.find({
       ...query,
-      transaction_type: { $in: ["Single Level Income", "Single Leg Income", "Single Line Income"] },
-    }).sort({ transaction_date: -1 }); // Show latest first
+      $or: [
+        { transaction_type: { $in: ["Daily Incentive", "Single Level Income", "Single Leg Income", "Single Line Income", "ROI Payout"] } },
+        { description: { $regex: /daily incentive/i } }
+      ]
+    }).sort({ transaction_date: -1, createdAt: -1 });
 
     return res.status(200).json({
       success: true,
