@@ -62,6 +62,8 @@ const MemberSchema = new mongoose.Schema(
     direct_referrals: { type: [String], default: [] },
     total_team: { type: Number, default: 0 },
     level: { type: Number, default: 0 },
+    roi_daily_amount: { type: Number, default: 0, set: v => Math.round(v * 100) / 100 },
+    roi_total_paid: { type: Number, default: 0, set: v => Math.round(v * 100) / 100 },
     // KYC fields
     kycStatus: {
       type: String,

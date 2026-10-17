@@ -107,7 +107,15 @@ const triggerMLMCommissions = async (req, res) => {
     await updateSponsorReferrals(actualSponsorId, actualMemberId);
     console.log("👥 Direct sponsor referrals updated");
 
-    // Calculate and process multi-level commissions (7 levels based on percentage)
+    // Check and update sponsor level based on referrals
+    try {
+      const { checkAndUpdateSponsorLevel } = require("../roiService/sponsorLevelService");
+      await checkAndUpdateSponsorLevel(actualSponsorId);
+    } catch (lvlErr) {
+      console.error("⚠️ Sponsor level update failed:", lvlErr.message);
+    }
+
+    // Calculate and process multi-level commissions (up to 10 levels based on percentage)
     const packageAmount = Number(newMember.package_value || newMember.spackage || 0);
     const commissions = await calculateCommissions(actualMemberId, actualSponsorId, packageAmount > 0 ? packageAmount : null);
     let commissionResults = [];

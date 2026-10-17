@@ -1,13 +1,20 @@
 const nodemailer = require("nodemailer");
 require("dotenv").config();
 
-const transporter = nodemailer.createTransport({
-  service: "gmail",
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
-  },
-});
+let transporter = null;
+
+const getTransporter = () => {
+  if (!transporter) {
+    transporter = nodemailer.createTransport({
+      service: "gmail",
+      auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS,
+      },
+    });
+  }
+  return transporter;
+};
 
 // const generateMSCSEmail = (memberId, password, name = 'Member') => {
 //   const welcomeSubject = 'MSCS - Account Registration Successful';
@@ -51,7 +58,7 @@ const sendMail = async (email, subject, htmlContent, textContent = '', attachmen
       ...(attachments.length > 0 && { attachments })
     };
 
-    const info = await transporter.sendMail(mailOptions);
+    const info = await getTransporter().sendMail(mailOptions);
     return info;
 
   } catch (error) {

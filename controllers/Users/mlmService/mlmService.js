@@ -10,7 +10,10 @@ const referralCommissionPercentages = {
   4: 1,
   5: 1,
   6: 1,
-  7: 1
+  7: 1,
+  8: 0.5,
+  9: 0.5,
+  10: 0.5
 };
 
 const levelBenefitsPercentages = {
@@ -20,7 +23,10 @@ const levelBenefitsPercentages = {
   4: 1,
   5: 1,
   6: 1,
-  7: 1
+  7: 1,
+  8: 0.5,
+  9: 0.5,
+  10: 0.5
 };
 
 /*
@@ -82,7 +88,8 @@ const findUplineSponsors = async (memberId, maxLevels = 15) => {
       sponsor_name: sponsor.Name || sponsor.name,
       sponsor_mobileno: sponsor.mobileno || sponsor.contactno,
       sponsored_member_id: currentMemberId, // The member who triggered this commission
-      sponsor_status: sponsor.status
+      sponsor_status: sponsor.status,
+      sponsor_level: Number(sponsor.level) || 0
     });
 
     // Move up the chain
@@ -109,8 +116,8 @@ const calculateCommissions = async (newMemberId, directSponsorId, specificAmount
     }
 
 
-    // Find all upline sponsors up to 7 levels
-    const uplineSponsors = await findUplineSponsors(newMemberId, 7);
+    // Find all upline sponsors up to 10 levels
+    const uplineSponsors = await findUplineSponsors(newMemberId, 10);
 
     if (uplineSponsors.length === 0) {
       return [];
@@ -126,7 +133,10 @@ const calculateCommissions = async (newMemberId, directSponsorId, specificAmount
         continue;
       }
 
-      // --- 1. Calculate Referral Level Income ---
+      const sponsorLevel = Number(upline.sponsor_level) || 0;
+
+      // --- 1. Calculate Referral Level Income (Direct - Level 1) ---
+      // Direct income flow keeps same, no member level requirement
       const refPercentage = referralCommissionPercentages[upline.level] || 0;
       if (refPercentage > 0 && upline.level === 1) {
         const refAmount = Number(((packageValue * refPercentage) / 100).toFixed(2));
@@ -151,9 +161,22 @@ const calculateCommissions = async (newMemberId, directSponsorId, specificAmount
         }
       }
 
-      // --- 2. Calculate Level Benefits Income ---
+      // --- 2. Calculate Level Benefits Income (Level 2 to 10) ---
       const levelPercentage = levelBenefitsPercentages[upline.level] || 0;
       if (levelPercentage > 0 && upline.level > 1) {
+        // Eligibility rule:
+        // - Level 2, 3, 4, 5: Member level must be at least 4 (>= 4). Otherwise skip.
+        // - Level 6, 7, 8, 9, 10: Member level must be at least 8 (>= 8). Otherwise skip.
+        if (upline.level >= 2 && upline.level <= 5 && sponsorLevel < 4) {
+          console.log(`⏭️ [LEVEL BONUS SKIPPED] Level ${upline.level}: ${upline.sponsor_name} (${upline.sponsor_id}) has level ${sponsorLevel} (Requires Level >= 4). Commission skipped.`);
+          continue;
+        }
+
+        if (upline.level >= 6 && upline.level <= 10 && sponsorLevel < 8) {
+          console.log(`⏭️ [LEVEL BONUS SKIPPED] Level ${upline.level}: ${upline.sponsor_name} (${upline.sponsor_id}) has level ${sponsorLevel} (Requires Level >= 8). Commission skipped.`);
+          continue;
+        }
+
         const levelAmount = Number(((packageValue * levelPercentage) / 100).toFixed(2));
         if (levelAmount > 0) {
           commissions.push({
@@ -207,6 +230,30 @@ const processCommissions = async (commissions, session = null) => {
             sponsor_id: commission.sponsor_id,
             sponsor_name: commission.sponsor_name,
             error: `Sponsor status is not active (${sponsor?.status || 'not found'})`
+          });
+          continue;
+        }
+
+        // Safety verification of sponsor level eligibility
+        const sponsorLevel = Number(sponsor.level) || 0;
+        if (commission.level >= 2 && commission.level <= 5 && sponsorLevel < 4) {
+          results.push({
+            success: false,
+            level: commission.level,
+            sponsor_id: commission.sponsor_id,
+            sponsor_name: commission.sponsor_name,
+            error: `Sponsor level ${sponsorLevel} is not eligible for Level ${commission.level} commission (Requires Level >= 4)`
+          });
+          continue;
+        }
+
+        if (commission.level >= 6 && commission.level <= 10 && sponsorLevel < 8) {
+          results.push({
+            success: false,
+            level: commission.level,
+            sponsor_id: commission.sponsor_id,
+            sponsor_name: commission.sponsor_name,
+            error: `Sponsor level ${sponsorLevel} is not eligible for Level ${commission.level} commission (Requires Level >= 8)`
           });
           continue;
         }
@@ -402,14 +449,20 @@ const getUplineTree = async (memberIdOrReq, maxLevelsOrRes = 15) => {
         : (levelBenefitsPercentages[u.level] || 0);
 
       const isActive = String(u.sponsor_status || "").toLowerCase() === "active";
+      const sponsorLvl = Number(u.sponsor_level) || 0;
+      let eligible = isActive;
+      if (u.level >= 2 && u.level <= 5 && sponsorLvl < 4) eligible = false;
+      if (u.level >= 6 && u.level <= 10 && sponsorLvl < 8) eligible = false;
+
       return {
         level: u.level,
         member_id: u.sponsor_id,
         name: u.sponsor_name,
         member_code: u.Sponsor_code,
         status: u.sponsor_status,
+        member_level: sponsorLvl,
         commission_rate: rate,
-        eligible: isActive
+        eligible: eligible
       };
     });
 
@@ -428,11 +481,11 @@ const getUplineTree = async (memberIdOrReq, maxLevelsOrRes = 15) => {
 
 const getCommissionSummary = () => {
   return {
-    total_levels: 7,
+    total_levels: 10,
     referral_rates: referralCommissionPercentages,
     level_rates: levelBenefitsPercentages,
     // roi_rates: roiCommissionPercentages, // Disabled as per user request (NO ROI)
-    condition: "Commissions only for sponsors with 'active' status"
+    condition: "Level 1: Active status required. Level 2-5: Active status & Member Level >= 4 required. Level 6-10: Active status & Member Level >= 8 required."
   };
 };
 

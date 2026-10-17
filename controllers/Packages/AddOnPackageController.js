@@ -29,6 +29,51 @@ const requestAddOn = async (req, res) => {
       return res.status(404).json({ success: false, message: "Member not found" });
     }
 
+    // Require total earnings >= 2 * totalInvested for re-investment / add-on
+    const existingAddons = await AddOnPackageModel.find({ member_id, request_id: { $ne: 'PRIMARY' } });
+    const totalAddonAmount = existingAddons.reduce((acc, pkg) => acc + (parseFloat(pkg.amount) || 0), 0);
+    const primaryAmount = parseFloat(member.package_value) || 0;
+    const totalInvested = primaryAmount + totalAddonAmount;
+
+    if (totalInvested > 0) {
+      const memberTxs = await TransactionModel.find({
+        member_id,
+        status: "Completed"
+      });
+      const levelBenefits = memberTxs.filter(tx => {
+        const txType = tx.transaction_type?.toLowerCase() || "";
+        const desc = tx.description?.toLowerCase() || "";
+        return (txType.includes("level benefit") || txType.includes("level bonus") || tx.benefit_type?.toLowerCase().includes("level income")) &&
+          !txType.includes("roi") && !desc.includes("roi") && !txType.includes("referral") && !desc.includes("referral");
+      }).reduce((acc, tx) => acc + (parseFloat(tx.ew_credit) || 0) + (parseFloat(tx.uw_credit) || 0) + (parseFloat(tx.fd_credit) || 0) + (parseFloat(tx.pw_credit) || 0), 0);
+
+      const roiLevelBenefits = memberTxs.filter(tx => tx.transaction_type === "ROI Level Benefit").reduce((acc, tx) => acc + (parseFloat(tx.ew_credit) || 0) + (parseFloat(tx.uw_credit) || 0) + (parseFloat(tx.fd_credit) || 0) + (parseFloat(tx.pw_credit) || 0), 0);
+      const directBenefits = memberTxs.filter(tx => {
+        const txType = tx.transaction_type?.toLowerCase() || "";
+        const desc = tx.description?.toLowerCase() || "";
+        return txType === "direct benefits" || desc === "direct benefits" || txType.includes("referral") || desc.includes("referral");
+      }).reduce((acc, tx) => acc + (parseFloat(tx.ew_credit) || 0) + (parseFloat(tx.uw_credit) || 0) + (parseFloat(tx.fd_credit) || 0) + (parseFloat(tx.pw_credit) || 0), 0);
+      const repaymentCommission = memberTxs.filter(tx => (tx.transaction_type?.toLowerCase().includes("repayment commission") || tx.description?.toLowerCase().includes("repayment commission"))).reduce((acc, tx) => acc + (parseFloat(tx.ew_credit) || 0), 0);
+      const roiBenefits = memberTxs.filter(tx => tx.transaction_type === "ROI Payout").reduce((acc, tx) => acc + (parseFloat(tx.ew_credit) || 0) + (parseFloat(tx.uw_credit) || 0) + (parseFloat(tx.fd_credit) || 0) + (parseFloat(tx.pw_credit) || 0), 0);
+      const singleLineIncome = memberTxs.filter(tx => (
+        tx.transaction_type === "Daily Incentive" ||
+        tx.transaction_type === "Single Line Income" ||
+        tx.transaction_type === "Single Level Income" ||
+        tx.transaction_type === "Single Leg Income" ||
+        tx.transaction_type === "ROI Payout" ||
+        tx.description?.toLowerCase().includes("daily incentive")
+      )).reduce((acc, tx) => acc + (parseFloat(tx.gross_amount) || parseFloat(tx.net_amount) || ((parseFloat(tx.ew_credit) || 0) + (parseFloat(tx.tw_credit) || 0)) || parseFloat(tx.ew_credit) || 0), 0);
+
+      const totalEarnings = levelBenefits + roiLevelBenefits + directBenefits + repaymentCommission + roiBenefits + singleLineIncome;
+
+      if (totalEarnings < (2 * totalInvested)) {
+        return res.status(400).json({
+          success: false,
+          message: `Re-investment is allowed only when total earnings reach at least double of your investment amount (₹${(2 * totalInvested).toLocaleString()}). Current earnings: ₹${totalEarnings.toLocaleString()}.`
+        });
+      }
+    }
+
     const method = payment_method || "crypto";
 
     // Non-wallet payments (UPI/QR, crypto) require a transaction reference number
@@ -384,6 +429,52 @@ const buyPackageDirectly = async (req, res) => {
       return res.status(400).json({ success: false, message: "You have already invested this amount." });
     }
 
+    // 0.1 Check if this is a re-investment and require total earnings >= 2 * totalInvested
+    const memberIdVal = targetMember.Member_id || finalTargetId;
+    const existingAddons = await AddOnPackageModel.find({ member_id: memberIdVal, request_id: { $ne: 'PRIMARY' } });
+    const totalAddonAmount = existingAddons.reduce((acc, pkg) => acc + (parseFloat(pkg.amount) || 0), 0);
+    const primaryAmount = parseFloat(targetMember.package_value) || 0;
+    const totalInvested = primaryAmount + totalAddonAmount;
+
+    if (totalInvested > 0) {
+      const memberTxs = await TransactionModel.find({
+        member_id: memberIdVal,
+        status: "Completed"
+      });
+      const levelBenefits = memberTxs.filter(tx => {
+        const txType = tx.transaction_type?.toLowerCase() || "";
+        const desc = tx.description?.toLowerCase() || "";
+        return (txType.includes("level benefit") || txType.includes("level bonus") || tx.benefit_type?.toLowerCase().includes("level income")) &&
+          !txType.includes("roi") && !desc.includes("roi") && !txType.includes("referral") && !desc.includes("referral");
+      }).reduce((acc, tx) => acc + (parseFloat(tx.ew_credit) || 0) + (parseFloat(tx.uw_credit) || 0) + (parseFloat(tx.fd_credit) || 0) + (parseFloat(tx.pw_credit) || 0), 0);
+
+      const roiLevelBenefits = memberTxs.filter(tx => tx.transaction_type === "ROI Level Benefit").reduce((acc, tx) => acc + (parseFloat(tx.ew_credit) || 0) + (parseFloat(tx.uw_credit) || 0) + (parseFloat(tx.fd_credit) || 0) + (parseFloat(tx.pw_credit) || 0), 0);
+      const directBenefits = memberTxs.filter(tx => {
+        const txType = tx.transaction_type?.toLowerCase() || "";
+        const desc = tx.description?.toLowerCase() || "";
+        return txType === "direct benefits" || desc === "direct benefits" || txType.includes("referral") || desc.includes("referral");
+      }).reduce((acc, tx) => acc + (parseFloat(tx.ew_credit) || 0) + (parseFloat(tx.uw_credit) || 0) + (parseFloat(tx.fd_credit) || 0) + (parseFloat(tx.pw_credit) || 0), 0);
+      const repaymentCommission = memberTxs.filter(tx => (tx.transaction_type?.toLowerCase().includes("repayment commission") || tx.description?.toLowerCase().includes("repayment commission"))).reduce((acc, tx) => acc + (parseFloat(tx.ew_credit) || 0), 0);
+      const roiBenefits = memberTxs.filter(tx => tx.transaction_type === "ROI Payout").reduce((acc, tx) => acc + (parseFloat(tx.ew_credit) || 0) + (parseFloat(tx.uw_credit) || 0) + (parseFloat(tx.fd_credit) || 0) + (parseFloat(tx.pw_credit) || 0), 0);
+      const singleLineIncome = memberTxs.filter(tx => (
+        tx.transaction_type === "Daily Incentive" ||
+        tx.transaction_type === "Single Line Income" ||
+        tx.transaction_type === "Single Level Income" ||
+        tx.transaction_type === "Single Leg Income" ||
+        tx.transaction_type === "ROI Payout" ||
+        tx.description?.toLowerCase().includes("daily incentive")
+      )).reduce((acc, tx) => acc + (parseFloat(tx.gross_amount) || parseFloat(tx.net_amount) || ((parseFloat(tx.ew_credit) || 0) + (parseFloat(tx.tw_credit) || 0)) || parseFloat(tx.ew_credit) || 0), 0);
+
+      const totalEarnings = levelBenefits + roiLevelBenefits + directBenefits + repaymentCommission + roiBenefits + singleLineIncome;
+
+      if (totalEarnings < (2 * totalInvested)) {
+        return res.status(400).json({
+          success: false,
+          message: `Re-investment is allowed only when total earnings reach at least double of your investment amount (₹${(2 * totalInvested).toLocaleString()}). Current earnings: ₹${totalEarnings.toLocaleString()}.`
+        });
+      }
+    }
+
     // 1. Verify Credits Balance for Payer
     const transactions = await TransactionModel.find({ member_id: member_id });
     const nonLoanTransactions = transactions.filter(tx =>
@@ -445,6 +536,11 @@ const buyPackageDirectly = async (req, res) => {
       targetMember.roi_status = "Active";
       targetMember.roi_payout_count = 0;
       targetMember.roi_payout_target = 200;
+      targetMember.roi_daily_amount = Math.round(Number(requested_amount) * 0.01 * 100) / 100;
+      targetMember.roi_total_paid = 0;
+      if (targetMember.level === undefined || targetMember.level === null) {
+        targetMember.level = 0;
+      }
       targetMember.roi_start_date = todayStr;
       targetMember.roi_last_payout_date = null;
       await targetMember.save();
@@ -473,7 +569,18 @@ const buyPackageDirectly = async (req, res) => {
     //   console.error("Global income distribution failed:", globalIncomeErr);
     // }
 
-    // 4. MLM Commissions - For Target Member's Sponsor
+    // 4. Check and Update Sponsor Level & Continuous ROI
+    try {
+      const { checkAndUpdateSponsorLevel } = require("../Users/roiService/sponsorLevelService");
+      const sponsorIdentifier = targetMember.sponsor_id || targetMember.Sponsor_code;
+      if (sponsorIdentifier) {
+        await checkAndUpdateSponsorLevel(sponsorIdentifier);
+      }
+    } catch (lvlErr) {
+      console.error(`⚠️ Sponsor level promotion check failed:`, lvlErr.message);
+    }
+
+    // 4.1 MLM Commissions - For Target Member's Sponsor
     try {
       const commissions = await mlmService.calculateCommissions(
         finalTargetId,

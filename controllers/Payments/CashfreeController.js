@@ -805,6 +805,8 @@ exports.handleWebhook = async (req, res) => {
               member.roi_start_date = moment().utcOffset("+05:30").format("YYYY-MM-DD");
               member.roi_payout_count = 0;
               member.roi_payout_target = 200;
+              member.roi_daily_amount = Math.round(Number(member.package_value) * 0.01 * 100) / 100;
+              member.roi_total_paid = 0;
               member.roi_last_payout_date = null;
             }
             await member.save();
@@ -821,13 +823,21 @@ exports.handleWebhook = async (req, res) => {
               }
             }
 
-            // Update referral hierarchy now that member is active
+            // Update referral hierarchy and sponsor level now that member is active
             try {
               const sponsorId = member.sponsor_id || member.Sponsor_code;
               if (sponsorId) {
                 console.log(`🔁 Updating referral hierarchy for new active member ${member.Member_id} with sponsor ${sponsorId}`);
                 await updateReferralHierarchy(member.Member_id, sponsorId);
                 console.log(`✅ Referral hierarchy updated for member ${member.Member_id}`);
+
+                // Update Sponsor Level & Continuous ROI
+                try {
+                  const { checkAndUpdateSponsorLevel } = require("../Users/roiService/sponsorLevelService");
+                  await checkAndUpdateSponsorLevel(sponsorId);
+                } catch (lvlErr) {
+                  console.error("⚠️ Sponsor level promotion check failed:", lvlErr.message);
+                }
               } else {
                 console.log(`⚠️ No sponsorId found for member ${member.Member_id}; skipping referral update`);
               }

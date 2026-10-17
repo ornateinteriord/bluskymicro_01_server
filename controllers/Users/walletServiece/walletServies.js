@@ -224,6 +224,16 @@ const getWalletOverview = async (req, res) => {
     const totalPackages = limits.totalInvested;
     const hasInvestment = limits.hasInvestment;
 
+    const totalEarningsAmount = (
+      parseFloat(levelBenefits || 0) +
+      parseFloat(roiLevelBenefits || 0) +
+      parseFloat(directBenefits || 0) +
+      parseFloat(repaymentCommission || 0) +
+      parseFloat(roiBenefits || 0) +
+      parseFloat(singleLineIncome || 0)
+    );
+    const canReinvest = hasInvestment && totalPackages > 0 && totalEarningsAmount >= (2 * totalPackages);
+
     const singleLevelIncomeByPackage = {};
     const sliTransactions = transactions.filter(tx =>
       (tx.transaction_type === "Single Line Income" || tx.transaction_type === "Single Level Income" || tx.transaction_type === "Single Leg Income") &&
@@ -259,7 +269,8 @@ const getWalletOverview = async (req, res) => {
     return res.status(200).json({
       success: true,
       hasInvestment: hasInvestment,
-      canReTopup: hasInvestment,
+      canReTopup: canReinvest,
+      canReinvest: canReinvest,
       data: {
         balance: Math.max(0, availableBalance).toFixed(2),
         totalIncome: totalIncome.toFixed(2),
@@ -277,7 +288,8 @@ const getWalletOverview = async (req, res) => {
 
         singleLevelIncomeByPackage: singleLevelIncomeByPackage,
         totalAddonAmount: totalAddonAmount.toFixed(2),
-        totalBenefits: (levelBenefits + roiLevelBenefits + directBenefits + repaymentCommission + roiBenefits + singleLineIncome).toFixed(2),
+        totalBenefits: totalEarningsAmount.toFixed(2),
+        totalEarnings: totalEarningsAmount.toFixed(2),
         pendingWithdrawals: pendingWithdrawals.toFixed(2),
         primaryPackage: limits.primaryAmount,
         addOnPackages: limits.totalAddonAmount,
@@ -287,7 +299,9 @@ const getWalletOverview = async (req, res) => {
         totalWithdrawn: limits.totalWithdrawn,
         remainingWithdrawalLimit: limits.remainingWithdrawalLimit,
         hasInvestment: limits.hasInvestment,
-        canReTopup: limits.hasInvestment,
+        canReTopup: canReinvest,
+        canReinvest: canReinvest,
+        requiredEarningsForReinvest: (2 * totalPackages).toFixed(2),
         hasWithdrawnToday: existingWithdrawalToday,
         // Upgrade Wallet
         upgradeWalletBalance: (member.upgrade_wallet || 0).toFixed(2),

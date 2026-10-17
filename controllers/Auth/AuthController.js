@@ -10,6 +10,7 @@ const { generateMSCSEmail } = require("../../utils/generateMSCSEmail");
 const { updateSponsorReferrals } = require("../../controllers/Users/mlmService/mlmService");
 const { addMemberHierarchy } = require("../../utils/hierarchyHelper");
 const path = require("path");
+const fs = require("fs");
 
 const recoverySubject = "BMS - Password Recovery";
 const resetPasswordSubject = "BMS - OTP Verification";
@@ -163,11 +164,15 @@ const signup = async (req, res) => {
 
       const textContent = `Dear ${Name}, Your account registration with Ecash has been completed. Member ID: ${memberId}, Password: ${password}. Your account is under verification process.`;
 
-      const attachments = [{
-        filename: 'BMS.png',
-        path: path.join(__dirname, '../../utils/BMS.png'),
+      const logoPath = path.join(__dirname, '../../utils/BMS.png');
+      const fallbackLogoPath = path.join(__dirname, '../../utils/bms_logo.png');
+      const resolvedLogoPath = fs.existsSync(logoPath) ? logoPath : (fs.existsSync(fallbackLogoPath) ? fallbackLogoPath : null);
+
+      const attachments = resolvedLogoPath ? [{
+        filename: path.basename(resolvedLogoPath),
+        path: resolvedLogoPath,
         cid: 'bmslogo'
-      }];
+      }] : [];
 
       await sendMail(email, welcomeSubject, welcomeMessage, textContent, attachments);
 

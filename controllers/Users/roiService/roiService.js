@@ -97,13 +97,34 @@ const processDailyROI = async (targetMemberId = null, customToday = null) => {
                     continue;
                 }
 
-                // 1% daily payout - 100% to Credits Wallet
-                const dailyTotalAmount = Math.round(pkgAmount * 0.01 * 100) / 100; // e.g. 3.00 for 300
-                const creditAmount = dailyTotalAmount;
+                // Dynamic daily payout based on level / schedule or default 1%
+                let dailyTotalAmount = (member.roi_daily_amount && member.roi_daily_amount > 0)
+                    ? Number(member.roi_daily_amount)
+                    : Math.round(pkgAmount * 0.01 * 100) / 100;
+
+                // Ensure total payout does not exceed 2x total target
+                const totalTargetRoi = pkgAmount * 2;
+                let currentPaid = Number(member.roi_total_paid) || 0;
 
                 for (const payoutDate of daysToProcess) {
+                    const remainingAllowed = Math.max(0, totalTargetRoi - currentPaid);
+                    if (remainingAllowed <= 0) {
+                        await MemberModel.updateOne(
+                            { Member_id: member.Member_id },
+                            { $set: { roi_status: "Completed" } }
+                        );
+                        break;
+                    }
+
+                    const actualDaily = Math.min(dailyTotalAmount, remainingAllowed);
+                    const creditAmount = actualDaily;
                     const newCount = currentCount + 1;
                     const txId = `DI_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
+
+                    const memberLevel = member.level !== undefined && member.level !== null ? member.level : 0;
+                    const descText = memberLevel > 0 
+                        ? `Daily Incentive (Level ${memberLevel} - ₹${actualDaily}/day) - Day ${newCount}/${targetDays}`
+                        : `Daily Incentive (1% of ₹${pkgAmount}) - Day ${newCount}/${targetDays}`;
 
                     // Create transaction with 100% Credits (ew_credit)
                     const dailyTx = new TransactionModel({
@@ -112,14 +133,14 @@ const processDailyROI = async (targetMemberId = null, customToday = null) => {
                         member_id: member.Member_id,
                         Name: member.Name,
                         mobileno: member.mobileno,
-                        description: `Daily Incentive (1% of ₹${pkgAmount}) - Day ${newCount}/${targetDays}`,
+                        description: descText,
                         transaction_type: "Daily Incentive",
                         ew_credit: creditAmount.toString(),
                         tw_credit: "0",
                         ew_debit: "0",
                         tw_debit: "0",
-                        gross_amount: dailyTotalAmount.toString(),
-                        net_amount: dailyTotalAmount.toString(),
+                        gross_amount: actualDaily.toString(),
+                        net_amount: actualDaily.toString(),
                         status: "Completed",
                         benefit_type: "Daily Incentive",
                         reference_no: `DI-P-${member.Member_id}-${newCount}`
@@ -128,16 +149,18 @@ const processDailyROI = async (targetMemberId = null, customToday = null) => {
                     await dailyTx.save();
 
                     currentCount = newCount;
+                    currentPaid += creditAmount;
                     baseProcessedCount++;
                     processedCount++;
 
                     // Update Member wallet balance and ROI status
-                    const isNowCompleted = currentCount >= targetDays;
+                    const isNowCompleted = currentCount >= targetDays || currentPaid >= totalTargetRoi;
                     await MemberModel.updateOne(
                         { Member_id: member.Member_id },
                         {
                             $inc: {
-                                wallet_balance: creditAmount
+                                wallet_balance: creditAmount,
+                                roi_total_paid: creditAmount
                             },
                             $set: {
                                 roi_payout_count: currentCount,
@@ -147,7 +170,7 @@ const processDailyROI = async (targetMemberId = null, customToday = null) => {
                         }
                     );
 
-                    console.log(`✅ [Daily Incentive] Credited Day ${newCount}/${targetDays} to ${member.Member_id}: Total ₹${dailyTotalAmount} Credits`);
+                    console.log(`✅ [Daily Incentive] Credited Day ${newCount}/${targetDays} to ${member.Member_id} (Level ${memberLevel}): Total ₹${actualDaily} Credits`);
                 }
 
             } catch (memberErr) {

@@ -123,6 +123,39 @@ const getMemberDetails = async (req, res) => {
     const totalPackages = (Number(foundUser.package_value) || 0) + totalAddonAmount;
     const hasInvestment = totalPackages > 0;
 
+    let totalEarnings = 0;
+    if (hasInvestment) {
+      const completedTxs = await TransactionModel.find({
+        member_id: memberIdVal,
+        status: "Completed"
+      });
+      const levelBenefits = completedTxs.filter(tx => {
+        const txType = tx.transaction_type?.toLowerCase() || "";
+        const desc = tx.description?.toLowerCase() || "";
+        return (txType.includes("level benefit") || txType.includes("level bonus") || tx.benefit_type?.toLowerCase().includes("level income")) &&
+          !txType.includes("roi") && !desc.includes("roi") && !txType.includes("referral") && !desc.includes("referral");
+      }).reduce((acc, tx) => acc + (parseFloat(tx.ew_credit) || 0) + (parseFloat(tx.uw_credit) || 0) + (parseFloat(tx.fd_credit) || 0) + (parseFloat(tx.pw_credit) || 0), 0);
+      const roiLevelBenefits = completedTxs.filter(tx => tx.transaction_type === "ROI Level Benefit").reduce((acc, tx) => acc + (parseFloat(tx.ew_credit) || 0) + (parseFloat(tx.uw_credit) || 0) + (parseFloat(tx.fd_credit) || 0) + (parseFloat(tx.pw_credit) || 0), 0);
+      const directBenefits = completedTxs.filter(tx => {
+        const txType = tx.transaction_type?.toLowerCase() || "";
+        const desc = tx.description?.toLowerCase() || "";
+        return txType === "direct benefits" || desc === "direct benefits" || txType.includes("referral") || desc.includes("referral");
+      }).reduce((acc, tx) => acc + (parseFloat(tx.ew_credit) || 0) + (parseFloat(tx.uw_credit) || 0) + (parseFloat(tx.fd_credit) || 0) + (parseFloat(tx.pw_credit) || 0), 0);
+      const repaymentCommission = completedTxs.filter(tx => (tx.transaction_type?.toLowerCase().includes("repayment commission") || tx.description?.toLowerCase().includes("repayment commission"))).reduce((acc, tx) => acc + (parseFloat(tx.ew_credit) || 0), 0);
+      const roiBenefits = completedTxs.filter(tx => tx.transaction_type === "ROI Payout").reduce((acc, tx) => acc + (parseFloat(tx.ew_credit) || 0) + (parseFloat(tx.uw_credit) || 0) + (parseFloat(tx.fd_credit) || 0) + (parseFloat(tx.pw_credit) || 0), 0);
+      const singleLineIncome = completedTxs.filter(tx => (
+        tx.transaction_type === "Daily Incentive" ||
+        tx.transaction_type === "Single Line Income" ||
+        tx.transaction_type === "Single Level Income" ||
+        tx.transaction_type === "Single Leg Income" ||
+        tx.transaction_type === "ROI Payout" ||
+        tx.description?.toLowerCase().includes("daily incentive")
+      )).reduce((acc, tx) => acc + (parseFloat(tx.gross_amount) || parseFloat(tx.net_amount) || ((parseFloat(tx.ew_credit) || 0) + (parseFloat(tx.tw_credit) || 0)) || parseFloat(tx.ew_credit) || 0), 0);
+
+      totalEarnings = levelBenefits + roiLevelBenefits + directBenefits + repaymentCommission + roiBenefits + singleLineIncome;
+    }
+    const canReinvest = hasInvestment && totalPackages > 0 && totalEarnings >= (2 * totalPackages);
+
     // Add registration data to response
     const responseData = {
       ...foundUser.toObject(),
@@ -137,14 +170,17 @@ const getMemberDetails = async (req, res) => {
         total: totalTeamCount
       },
       totalPackages: totalPackages,
+      totalEarnings: totalEarnings,
       hasInvestment: hasInvestment,
-      canReTopup: hasInvestment
+      canReTopup: canReinvest,
+      canReinvest: canReinvest
     };
 
     return res.status(200).json({
       success: true,
       hasInvestment: hasInvestment,
-      canReTopup: hasInvestment,
+      canReTopup: canReinvest,
+      canReinvest: canReinvest,
       data: responseData
     });
 
@@ -237,6 +273,8 @@ const activateMemberPackage = async (req, res) => {
         roi_status: "Active",
         roi_payout_target: 200,
         roi_payout_count: 0,
+        roi_daily_amount: Math.round(amount * 0.01 * 100) / 100,
+        roi_total_paid: 0,
         roi_start_date: activationDate,
         roi_last_payout_date: null,
       },
@@ -293,6 +331,14 @@ const activateMemberPackage = async (req, res) => {
           }),
           json: (data) => { mlmData = data; return data; }
         });
+
+        // 4.1 Update Sponsor Level & Continuous ROI
+        try {
+          const { checkAndUpdateSponsorLevel } = require("../roiService/sponsorLevelService");
+          await checkAndUpdateSponsorLevel(sponsorCode);
+        } catch (lvlErr) {
+          console.error("⚠️ Sponsor level promotion check failed:", lvlErr.message);
+        }
       }
 
       const commissions = mlmData?.commissions || mlmData?.data?.commissions || [];
