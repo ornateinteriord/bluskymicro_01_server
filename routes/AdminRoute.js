@@ -3,7 +3,7 @@ const { getNews, addNews } = require("../controllers/Admin/News/NewsController")
 const UpdatePassword = require("../controllers/Admin/UpdatePassword");
 const getTransactionDetails = require("../controllers/Transaction/Transaction");
 const { getEpinsSummary, generatePackage } = require("../controllers/Users/Epin/epin");
-const { getDailyPayout,   getRewardLoansByStatus, processRewardLoan, triggerDailyROI, getROISummary, getROIBenefits } = require("../controllers/Users/Payout/PayoutController");
+const { getDailyPayout,   getRewardLoansByStatus, processRewardLoan, triggerDailyROI, getROISummary, getROIBenefits, getLevelRoiSchedules } = require("../controllers/Users/Payout/PayoutController");
 const { processAutoUpgrades } = require("../controllers/Packages/autoUpgradeService");
 
 // NIDHI ADMIN CONTROLLERS
@@ -40,6 +40,8 @@ router.put('/update-status/:memberId', Authenticated, authorizeRoles("ADMIN"), u
 router.get('/all-daily-payouts', Authenticated, authorizeRoles("ADMIN"), getDailyPayout);
 router.get('/roi-summary', Authenticated, authorizeRoles("ADMIN"), getROISummary);
 router.get('/roi-benefits', Authenticated, authorizeRoles("ADMIN"), getROIBenefits);
+router.get('/level-roi-schedules', Authenticated, authorizeRoles("ADMIN"), getLevelRoiSchedules);
+router.get('/level-roi-schedules/:member_id', Authenticated, authorizeRoles("ADMIN"), getLevelRoiSchedules);
 
 
 // router.get('/all-daily-payouts/:member_id', Authenticated, authorizeRoles("ADMIN"), getDailyPayout);

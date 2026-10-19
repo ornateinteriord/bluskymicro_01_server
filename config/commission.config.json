@@ -1,7 +1,8 @@
 {
-    "enabled": true,
+    "enabled": false,
+    "status": "DISABLED - Deposit interest rates (FD, RD, Pigmy) and 7-Level Pigmy commission are commented out/not in use",
     "minimumTransactionAmount": 0,
-    "description": "Configuration for both Interest Rates (for account maturity) and 7-Level Commission (for referral)",
+    "description": "Configuration for both Interest Rates (for account maturity) and 7-Level Commission (for referral) - CURRENTLY DISABLED",
     "seniorCitizenAgeThreshold": 60,
     "depositInterestRates": {
         "description": "Interest rates for deposit accounts - used for maturity calculation based on tenure",

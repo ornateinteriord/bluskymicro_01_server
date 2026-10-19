@@ -290,7 +290,8 @@ const collectPayment = async (req, res) => {
             collected_by: agentId
         });
 
-        // Process commission for introducers
+        // Process commission for introducers (Disabled: Banking / Pigmy deposit commission not in use)
+        /*
         try {
             console.log("💰 Processing commission for agent collection...");
             const commissionResult = await processTransactionCommission(transaction);
@@ -299,6 +300,7 @@ const collectPayment = async (req, res) => {
             console.error("❌ Commission processing error:", commissionError.message);
             // Don't fail the collection if commission fails
         }
+        */
 
         res.status(200).json({
             success: true,

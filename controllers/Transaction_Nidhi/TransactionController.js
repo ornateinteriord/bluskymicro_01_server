@@ -492,7 +492,8 @@ exports.handleCashfreeWebhook = async (req, res) => {
 
         console.log("✅ Payment completed & balance updated");
 
-        // Process commission for introducers
+        // Process commission for introducers (Disabled: Banking / Pigmy deposit commission not in use)
+        /*
         try {
             console.log("💰 Processing commission for transaction...");
             const commissionResult = await processTransactionCommission(transaction);
@@ -501,6 +502,7 @@ exports.handleCashfreeWebhook = async (req, res) => {
             console.error("❌ Commission processing error:", commissionError.message);
             // Don't fail the webhook if commission fails
         }
+        */
     }
 
     // -------------------------

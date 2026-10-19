@@ -158,7 +158,7 @@ const getWalletOverview = async (req, res) => {
 
     const roiLevelBenefits = nonLoanTransactions
       .filter(tx =>
-        tx.transaction_type === "ROI Level Benefit" &&
+        (tx.transaction_type === "ROI Level Benefit" || tx.transaction_type === "Level Daily ROI") &&
         tx.status === "Completed"
       )
       .reduce((acc, tx) => acc + (parseFloat(tx.ew_credit) || 0) + (parseFloat(tx.uw_credit) || 0) + (parseFloat(tx.fd_credit) || 0) + (parseFloat(tx.pw_credit) || 0), 0);
@@ -282,6 +282,7 @@ const getWalletOverview = async (req, res) => {
         levelBenefits: levelBenefits.toFixed(2),
         roiBenefits: roiBenefits.toFixed(2),
         roiLevelBenefits: roiLevelBenefits.toFixed(2),
+        levelDailyRoi: roiLevelBenefits.toFixed(2),
         directBenefits: directBenefits.toFixed(2),
         repaymentCommission: repaymentCommission.toFixed(2),
         singleLineIncome: singleLineIncome.toFixed(2),

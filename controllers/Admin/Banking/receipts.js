@@ -120,7 +120,8 @@ if (!existingAccount) {
             collected_by: entered_by
         });
 
-        // Process commission for introducers
+        // Process commission for introducers (Disabled: Banking / Pigmy deposit commission not in use)
+        /*
         try {
             console.log("💰 Processing commission for admin receipt...");
             const commissionResult = await processTransactionCommission(transaction);
@@ -129,6 +130,7 @@ if (!existingAccount) {
             console.error("❌ Commission processing error:", commissionError.message);
             // Don't fail the receipt if commission fails
         }
+        */
 
         console.log(`📝 Transaction created: ${transaction.transaction_id}`);
     } else {

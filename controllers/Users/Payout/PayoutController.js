@@ -7,7 +7,8 @@ const {
   processCommissions,
   getOrdinal,
   commissionRates,
-  getUplineTree
+  getUplineTree,
+  createLevelRoiSchedules
 } = require("../mlmService/mlmService");
 const { processDailyROI } = require("../roiService/roiService");
 
@@ -126,6 +127,13 @@ const triggerMLMCommissions = async (req, res) => {
       console.log(`⚠️ No commissions generated for new member ${actualMemberId}`);
     }
 
+    // Create 50-day Level ROI schedules for eligible uplines (Levels 1 to 7 with sponsor_level >= 3)
+    let levelRoiSchedules = [];
+    if (packageAmount > 0) {
+      levelRoiSchedules = await createLevelRoiSchedules(actualMemberId, packageAmount);
+      console.log(`📅 Created ${levelRoiSchedules.length} 50-day Level ROI schedules for new member ${actualMemberId}`);
+    }
+
     const formattedCommissions = commissions.map(c => ({
       level: c.level,
       memberId: c.sponsor_id,
@@ -144,10 +152,12 @@ const triggerMLMCommissions = async (req, res) => {
         commissions_generated: commissions.length,
         commissions_processed: commissionResults.filter(r => r.success).length,
         commissions: formattedCommissions,
-        totalCommission
+        totalCommission,
+        level_roi_schedules_created: levelRoiSchedules.length
       },
       commissions: formattedCommissions,
-      totalCommission
+      totalCommission,
+      level_roi_schedules_created: levelRoiSchedules.length
     });
 
   } catch (error) {
@@ -270,8 +280,8 @@ const getDailyPayout = async (req, res) => {
     const transactions = await TransactionModel.find({
       ...query,
       $or: [
-        { transaction_type: { $in: ["Daily Incentive", "Single Level Income", "Single Leg Income", "Single Line Income", "ROI Payout"] } },
-        { description: { $regex: /daily incentive/i } }
+        { transaction_type: { $in: ["Daily Incentive", "Single Level Income", "Single Leg Income", "Single Line Income", "ROI Payout", "Level Daily ROI"] } },
+        { description: { $regex: /daily incentive|level daily roi/i } }
       ]
     }).sort({ transaction_date: -1, createdAt: -1 });
 
@@ -335,12 +345,12 @@ const getROIBenefits = async (req, res) => {
       query = { member_id: member_id };
     }
 
-    // Filter strictly for ROI Level Benefits with related member name population
+    // Filter strictly for ROI Level Benefits / Level Daily ROI with related member name population
     const transactions = await TransactionModel.aggregate([
       {
         $match: {
           ...query,
-          transaction_type: "ROI Level Benefit",
+          transaction_type: { $in: ["ROI Level Benefit", "Level Daily ROI"] },
         }
       },
       {
@@ -462,6 +472,33 @@ const triggerUserROI = async (req, res) => {
   }
 };
 
+const getLevelRoiSchedules = async (req, res) => {
+  try {
+    const LevelRoiScheduleModel = require("../../../models/Packages/LevelRoiSchedule");
+    const userRole = req.user?.role;
+    const member_id = req.params.member_id || (userRole === "USER" ? req.user.memberId : null);
+
+    let query = {};
+    if (member_id) {
+      query.sponsor_id = member_id;
+    }
+
+    const schedules = await LevelRoiScheduleModel.find(query).sort({ createdAt: -1 });
+
+    return res.status(200).json({
+      success: true,
+      data: schedules
+    });
+  } catch (error) {
+    console.error("Error in getLevelRoiSchedules:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   triggerMLMCommissions,
   updateReferralHierarchy,
@@ -475,5 +512,6 @@ module.exports = {
   triggerUserROI,
   getROIBenefits,
   getROISummary,
+  getLevelRoiSchedules
 };
 

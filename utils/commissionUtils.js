@@ -102,6 +102,10 @@ return uniqueHierarchy.slice(0, 7); // Max 7 levels
 
 // Validate if transaction is eligible for commission
 const validateCommissionEligibility = (transaction, config) => {
+    // DISABLED / COMMENTED OUT: Banking & Pigmy commission system is currently not in use
+    return { eligible: false, reason: "Banking / Pigmy deposit commission system is disabled" };
+
+    /*
     console.log("\n🔍 Checking Commission Eligibility:");
     console.log(`   Commission System: ${config.enabled ? '✅ Enabled' : '❌ Disabled'}`);
 
@@ -139,6 +143,7 @@ const validateCommissionEligibility = (transaction, config) => {
 
     console.log("   Result: ✅ Eligible for Commission!");
     return { eligible: true };
+    */
 };
 
 // Map account type ID to name
@@ -498,6 +503,14 @@ return results;
 
 // Process commission for a completed transaction
 const processTransactionCommission = async (transaction) => {
+    // DISABLED / COMMENTED OUT: Banking & Pigmy commission system is not in use
+    return {
+        success: true,
+        message: "Banking deposit and Pigmy commission system is currently disabled",
+        commissions: [],
+    };
+
+    /*
     try {
         console.log("\n" + "=".repeat(60));
         console.log("🎯 COMMISSION PROCESSING STARTED");
@@ -580,6 +593,7 @@ const processTransactionCommission = async (transaction) => {
             error: error.message,
         };
     }
+    */
 };
 
 module.exports = {

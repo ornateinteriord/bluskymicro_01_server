@@ -2,6 +2,18 @@ const MemberModel = require("../../../models/Users/Member");
 const PayoutModel = require("../../../models/Payout/Payout");
 const TransactionModel = require("../../../models/Transaction/Transaction");
 const CommissionModel = require("../../../models/commission.model");
+const LevelRoiScheduleModel = require("../../../models/Packages/LevelRoiSchedule");
+const moment = require("moment");
+
+const levelRoiPercentages = {
+  1: 10,
+  2: 3,
+  3: 2,
+  4: 1,
+  5: 1,
+  6: 1,
+  7: 1
+};
 
 const referralCommissionPercentages = {
   1: 10,
@@ -677,11 +689,110 @@ const distributeROICommission = async (memberId, roiAmount, session = null, cust
   return [];
 };
 
+/**
+ * Creates 50-day Level ROI schedules for upline sponsors up to 7 levels.
+ * Eligibility: Sponsor must be active AND have rank level >= 3.
+ * 
+ * Rates:
+ * Level 1: 10% total over 50 days (0.20%/day)
+ * Level 2: 3% total over 50 days (0.06%/day)
+ * Level 3: 2% total over 50 days (0.04%/day)
+ * Level 4 to 7: 1% total over 50 days (0.02%/day each)
+ * 
+ * @param {string} newMemberId - The newly activated member
+ * @param {number} packageAmount - The package investment amount
+ * @returns {Array} List of created schedule records
+ */
+const createLevelRoiSchedules = async (newMemberId, packageAmount) => {
+  try {
+    if (!packageAmount || Number(packageAmount) <= 0) {
+      console.log(`⚠️ Invalid package amount for Level ROI schedules: ${packageAmount}`);
+      return [];
+    }
+
+    const newMember = await MemberModel.findOne({
+      $or: [{ Member_id: newMemberId }, { member_id: newMemberId }]
+    });
+
+    if (!newMember) {
+      console.error(`❌ Member ${newMemberId} not found for Level ROI schedule creation`);
+      return [];
+    }
+
+    const uplineSponsors = await findUplineSponsors(newMemberId, 7);
+    if (!uplineSponsors || uplineSponsors.length === 0) {
+      console.log(`ℹ️ No upline sponsors found for ${newMemberId}`);
+      return [];
+    }
+
+    const createdSchedules = [];
+    const todayStr = moment().utcOffset("+05:30").format("YYYY-MM-DD");
+
+    for (const upline of uplineSponsors) {
+      if (upline.level > 7) continue;
+
+      const isActive = String(upline.sponsor_status || "").toLowerCase() === "active";
+      const sponsorRank = Number(upline.sponsor_level) || 0;
+
+      // Condition: Active AND Rank Level >= 3 (applies to all 7 levels)
+      if (!isActive) {
+        console.log(`⏭️ [50-Day Level ROI Skipped] Level ${upline.level}: ${upline.sponsor_name} (${upline.sponsor_id}) is inactive.`);
+        continue;
+      }
+
+      if (sponsorRank < 3) {
+        console.log(`⏭️ [50-Day Level ROI Skipped] Level ${upline.level}: ${upline.sponsor_name} (${upline.sponsor_id}) has Rank Level ${sponsorRank} (Requires Level >= 3).`);
+        continue;
+      }
+
+      const percentage = levelRoiPercentages[upline.level] || 0;
+      if (percentage <= 0) continue;
+
+      const totalAmount = Number(((packageAmount * percentage) / 100).toFixed(2));
+      const dailyAmount = Number((totalAmount / 50).toFixed(2));
+
+      if (dailyAmount <= 0) continue;
+
+      const scheduleId = `LROI_${Date.now()}_L${upline.level}_${Math.floor(Math.random() * 1000)}`;
+
+      const schedule = new LevelRoiScheduleModel({
+        schedule_id: scheduleId,
+        sponsor_id: upline.sponsor_id,
+        sponsor_name: upline.sponsor_name,
+        sponsor_level: sponsorRank,
+        level: upline.level,
+        from_member_id: newMemberId,
+        from_member_name: newMember.Name || newMember.name,
+        package_amount: Number(packageAmount),
+        total_percentage: percentage,
+        total_amount: totalAmount,
+        daily_amount: dailyAmount,
+        target_days: 50,
+        payout_count: 0,
+        total_paid: 0,
+        status: "Active",
+        start_date: todayStr
+      });
+
+      await schedule.save();
+      createdSchedules.push(schedule);
+
+      console.log(`✅ [50-Day Level ROI Registered] Level ${upline.level}: ${upline.sponsor_name} (${upline.sponsor_id}) will receive ₹${dailyAmount}/day for 50 days (Total ₹${totalAmount}, ${percentage}% of ₹${packageAmount})`);
+    }
+
+    return createdSchedules;
+  } catch (error) {
+    console.error("❌ Error creating 50-day Level ROI schedules:", error);
+    return [];
+  }
+};
+
 module.exports = {
   referralCommissionPercentages,
   levelBenefitsPercentages,
   commissionRates: levelBenefitsPercentages,
-  // roiCommissionPercentages, // Disabled as per user request
+  levelRoiPercentages,
+  createLevelRoiSchedules,
   getOrdinal,
   findUplineSponsors,
   createLevelBenefitsTransaction,

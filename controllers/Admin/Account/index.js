@@ -247,10 +247,10 @@ const createAccount = async (req, res) => {
 
                 console.log(`📝 Transaction created for account opening: ${transId}`);
 
-                // Process commission for introducers
-                console.log("💰 Processing commission for account opening deposit...");
-                const commissionResult = await processTransactionCommission(transaction);
-                console.log("💰 Commission processing result:", commissionResult);
+                // Process commission for introducers (Disabled: Banking / Pigmy deposit commission not in use)
+                // console.log("💰 Processing commission for account opening deposit...");
+                // const commissionResult = await processTransactionCommission(transaction);
+                // console.log("💰 Commission processing result:", commissionResult);
             } catch (txError) {
                 console.error("❌ Error creating transaction/commission for account opening:", txError.message);
                 // Don't fail account creation if transaction/commission fails

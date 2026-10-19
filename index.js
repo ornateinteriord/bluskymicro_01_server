@@ -269,7 +269,7 @@ const startServer = async () => {
       // Initialize Cron Jobs (Only for Local/VPS, Vercel uses Crons field)
       if (process.env.VERCEL !== "1") {
         initCronJobs();
-        startMaturityScheduler();
+        // startMaturityScheduler(); // Commented out: Maturity interest scheduler for FD/RD/Pigmy not in use
       }
     });
 

@@ -1,10 +1,10 @@
 {
 	"folders": [
 		{
-			"path": "../../bluskymicro_01_ui/blusky-microservices-ui"
+			"path": "../../E-commerce_ui/bluskymicro_01_ui"
 		},
 		{
-			"path": "."
+			"path": "../../E-commerce_server/bluskymicro_01_server"
 		}
 	],
 	"settings": {}
