@@ -21,7 +21,7 @@ const GLOBAL_LOCK_TIMEOUT = 10 * 60 * 1000; // 10 minutes
  * @param {string|null} targetMemberId - Optional member ID to process specifically
  * @param {string|null} customToday - Optional custom date override (YYYY-MM-DD)
  */
-const processDailyROI = async (targetMemberId = null, customToday = null) => {
+const processDailyROI = async (targetMemberId = null, customToday = null, specificDateOnly = false, payoutType = "all") => {
     const now = Date.now();
     if (isROIProcessing && (now - lastGlobalProcessTime < GLOBAL_LOCK_TIMEOUT)) {
         console.log("⚠️ ROI processing is already running. Skipping concurrent run.");
@@ -38,431 +38,537 @@ const processDailyROI = async (targetMemberId = null, customToday = null) => {
     let levelRoiProcessedCount = 0;
 
     try {
-        console.log(`⏰ [Daily Incentive] Starting Daily Incentive distribution for date: ${todayStr}...`);
+        console.log(`⏰ [Daily Incentive] Starting distribution for date: ${todayStr} (SpecificDateOnly: ${specificDateOnly}, Type: ${payoutType})...`);
 
         // ─────────────────────────────────────────────────────────────
         // 1. PROCESS PRIMARY PACKAGES (Stored directly in MemberModel)
         // ─────────────────────────────────────────────────────────────
-        const memberQuery = {
-            package_value: { $gt: 0 },
-            status: "active",
-            roi_status: { $ne: "Completed" }
-        };
+        if (payoutType === "all" || payoutType === "daily_incentive") {
+            const memberQuery = {
+                package_value: { $gt: 0 },
+                status: "active",
+                roi_status: { $ne: "Completed" }
+            };
 
-        if (targetMemberId) {
-            memberQuery.Member_id = targetMemberId;
-        }
+            if (targetMemberId) {
+                memberQuery.Member_id = targetMemberId;
+            }
 
-        const activeMembers = await MemberModel.find(memberQuery);
-        console.log(`🔍 [Daily Incentive] Found ${activeMembers.length} active members with primary packages.`);
+            const activeMembers = await MemberModel.find(memberQuery);
+            console.log(`🔍 [Daily Incentive] Found ${activeMembers.length} active members with primary packages.`);
 
-        for (const member of activeMembers) {
-            try {
-                const pkgAmount = Number(member.package_value) || 0;
-                if (pkgAmount <= 0) continue;
+            for (const member of activeMembers) {
+                try {
+                    const pkgAmount = Number(member.package_value) || 0;
+                    if (pkgAmount <= 0) continue;
 
-                const targetDays = member.roi_payout_target || 200;
-                let currentCount = member.roi_payout_count || 0;
+                    const targetDays = member.roi_payout_target || 200;
+                    let currentCount = member.roi_payout_count || 0;
 
-                if (currentCount >= targetDays) {
-                    await MemberModel.updateOne(
-                        { Member_id: member.Member_id },
-                        { $set: { roi_status: "Completed" } }
-                    );
-                    continue;
-                }
-
-                // Determine investment date
-                const investDateStr = member.roi_start_date || member.Date_of_joining || todayStr;
-                if (!member.roi_start_date) {
-                    await MemberModel.updateOne({ Member_id: member.Member_id }, { $set: { roi_start_date: investDateStr } });
-                }
-                const lastPayoutDateStr = member.roi_last_payout_date || null;
-
-                // Calculate eligible dates to process (Catch-up logic)
-                // Daily Incentive / ROI starts the NEXT DAY (tomorrow) after investment
-                let dateCursor;
-                if (!lastPayoutDateStr) {
-                    dateCursor = moment(investDateStr, "YYYY-MM-DD").add(1, "days");
-                } else {
-                    dateCursor = moment(lastPayoutDateStr, "YYYY-MM-DD").add(1, "days");
-                }
-
-                const todayMoment = moment(todayStr, "YYYY-MM-DD");
-                const daysToProcess = [];
-
-                while (dateCursor.isSameOrBefore(todayMoment) && (currentCount + daysToProcess.length) < targetDays) {
-                    daysToProcess.push(dateCursor.format("YYYY-MM-DD"));
-                    dateCursor.add(1, "days");
-                }
-
-                if (daysToProcess.length === 0) {
-                    continue;
-                }
-
-                // Dynamic daily payout based on level / schedule or default 1%
-                let dailyTotalAmount = (member.roi_daily_amount && member.roi_daily_amount > 0)
-                    ? Number(member.roi_daily_amount)
-                    : Math.round(pkgAmount * 0.01 * 100) / 100;
-
-                // Ensure total payout does not exceed 2x total target
-                const totalTargetRoi = pkgAmount * 2;
-                let currentPaid = Number(member.roi_total_paid) || 0;
-
-                for (const payoutDate of daysToProcess) {
-                    const remainingAllowed = Math.max(0, totalTargetRoi - currentPaid);
-                    if (remainingAllowed <= 0) {
+                    if (currentCount >= targetDays) {
                         await MemberModel.updateOne(
                             { Member_id: member.Member_id },
                             { $set: { roi_status: "Completed" } }
                         );
-                        break;
+                        continue;
                     }
 
-                    const actualDaily = Math.min(dailyTotalAmount, remainingAllowed);
-                    const creditAmount = actualDaily;
-                    const newCount = currentCount + 1;
-                    const txId = `DI_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
+                    // Determine investment date
+                    const investDateStr = member.roi_start_date || member.Date_of_joining || todayStr;
+                    if (!member.roi_start_date) {
+                        await MemberModel.updateOne({ Member_id: member.Member_id }, { $set: { roi_start_date: investDateStr } });
+                    }
+                    const lastPayoutDateStr = member.roi_last_payout_date || null;
 
-                    const memberLevel = member.level !== undefined && member.level !== null ? member.level : 0;
-                    const descText = memberLevel > 0 
-                        ? `Daily Incentive (Level ${memberLevel} - ₹${actualDaily}/day) - Day ${newCount}/${targetDays}`
-                        : `Daily Incentive (1% of ₹${pkgAmount}) - Day ${newCount}/${targetDays}`;
+                    let daysToProcess = [];
 
-                    // Create transaction with 100% Credits (ew_credit)
-                    const dailyTx = new TransactionModel({
-                        transaction_id: txId,
-                        transaction_date: payoutDate,
-                        member_id: member.Member_id,
-                        Name: member.Name,
-                        mobileno: member.mobileno,
-                        description: descText,
-                        transaction_type: "Daily Incentive",
-                        ew_credit: creditAmount.toString(),
-                        tw_credit: "0",
-                        ew_debit: "0",
-                        tw_debit: "0",
-                        gross_amount: actualDaily.toString(),
-                        net_amount: actualDaily.toString(),
-                        status: "Completed",
-                        benefit_type: "Daily Incentive",
-                        reference_no: `DI-P-${member.Member_id}-${newCount}`
-                    });
+                    if (specificDateOnly) {
+                        // Check if todayStr is strictly after investDateStr (Daily Incentive starts NEXT DAY)
+                        const isEligibleDate = moment(todayStr, "YYYY-MM-DD").isAfter(moment(investDateStr, "YYYY-MM-DD"));
+                        if (!isEligibleDate) {
+                            continue;
+                        }
 
-                    await dailyTx.save();
+                        // Check if primary package Daily Incentive transaction already exists on todayStr
+                        const existingTx = await TransactionModel.findOne({
+                            member_id: member.Member_id,
+                            transaction_type: "Daily Incentive",
+                            $and: [
+                                {
+                                    $or: [
+                                        { transaction_date: todayStr },
+                                        { transaction_date: { $regex: new RegExp(`^${todayStr}`) } }
+                                    ]
+                                },
+                                {
+                                    $or: [
+                                        { reference_no: { $regex: new RegExp(`^DI-P-${member.Member_id}-`) } },
+                                        { reference_no: { $not: /^DI-A-/ } }
+                                    ]
+                                }
+                            ]
+                        });
 
-                    currentCount = newCount;
-                    currentPaid += creditAmount;
-                    baseProcessedCount++;
-                    processedCount++;
+                        if (existingTx) {
+                            continue;
+                        }
 
-                    // Update Member wallet balance and ROI status
-                    const isNowCompleted = currentCount >= targetDays || currentPaid >= totalTargetRoi;
-                    await MemberModel.updateOne(
-                        { Member_id: member.Member_id },
-                        {
+                        daysToProcess = [todayStr];
+                    } else {
+                        // Calculate eligible dates to process (Catch-up logic)
+                        // Daily Incentive / ROI starts the NEXT DAY (tomorrow) after investment
+                        let dateCursor;
+                        if (!lastPayoutDateStr) {
+                            dateCursor = moment(investDateStr, "YYYY-MM-DD").add(1, "days");
+                        } else {
+                            dateCursor = moment(lastPayoutDateStr, "YYYY-MM-DD").add(1, "days");
+                        }
+
+                        const todayMoment = moment(todayStr, "YYYY-MM-DD");
+
+                        while (dateCursor.isSameOrBefore(todayMoment) && (currentCount + daysToProcess.length) < targetDays) {
+                            daysToProcess.push(dateCursor.format("YYYY-MM-DD"));
+                            dateCursor.add(1, "days");
+                        }
+                    }
+
+                    if (daysToProcess.length === 0) {
+                        continue;
+                    }
+
+                    // Dynamic daily payout based on level / schedule or default 1%
+                    let dailyTotalAmount = (member.roi_daily_amount && member.roi_daily_amount > 0)
+                        ? Number(member.roi_daily_amount)
+                        : Math.round(pkgAmount * 0.01 * 100) / 100;
+
+                    // Ensure total payout does not exceed 2x total target
+                    const totalTargetRoi = pkgAmount * 2;
+                    let currentPaid = Number(member.roi_total_paid) || 0;
+
+                    for (const payoutDate of daysToProcess) {
+                        const remainingAllowed = Math.max(0, totalTargetRoi - currentPaid);
+                        if (remainingAllowed <= 0) {
+                            await MemberModel.updateOne(
+                                { Member_id: member.Member_id },
+                                { $set: { roi_status: "Completed" } }
+                            );
+                            break;
+                        }
+
+                        const actualDaily = Math.min(dailyTotalAmount, remainingAllowed);
+                        const creditAmount = actualDaily;
+                        const newCount = currentCount + 1;
+                        const txId = `DI_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
+
+                        const memberLevel = member.level !== undefined && member.level !== null ? member.level : 0;
+                        const descText = memberLevel > 0 
+                            ? `Daily Incentive (Level ${memberLevel} - ₹${actualDaily}/day) - Day ${newCount}/${targetDays}`
+                            : `Daily Incentive (1% of ₹${pkgAmount}) - Day ${newCount}/${targetDays}`;
+
+                        // Create transaction with 100% Credits (ew_credit)
+                        const dailyTx = new TransactionModel({
+                            transaction_id: txId,
+                            transaction_date: payoutDate,
+                            member_id: member.Member_id,
+                            Name: member.Name,
+                            mobileno: member.mobileno,
+                            description: descText,
+                            transaction_type: "Daily Incentive",
+                            ew_credit: creditAmount.toString(),
+                            tw_credit: "0",
+                            ew_debit: "0",
+                            tw_debit: "0",
+                            gross_amount: actualDaily.toString(),
+                            net_amount: actualDaily.toString(),
+                            status: "Completed",
+                            benefit_type: "Daily Incentive",
+                            reference_no: `DI-P-${member.Member_id}-${newCount}`
+                        });
+
+                        await dailyTx.save();
+
+                        currentCount = newCount;
+                        currentPaid += creditAmount;
+                        baseProcessedCount++;
+                        processedCount++;
+
+                        // Update Member wallet balance and ROI status
+                        const isNowCompleted = currentCount >= targetDays || currentPaid >= totalTargetRoi;
+                        const memberUpdate = {
                             $inc: {
                                 wallet_balance: creditAmount,
                                 roi_total_paid: creditAmount
                             },
                             $set: {
                                 roi_payout_count: currentCount,
-                                roi_last_payout_date: payoutDate,
                                 roi_status: isNowCompleted ? "Completed" : "Active"
                             }
+                        };
+
+                        if (!member.roi_last_payout_date || moment(payoutDate, "YYYY-MM-DD").isAfter(moment(member.roi_last_payout_date, "YYYY-MM-DD"))) {
+                            memberUpdate.$set.roi_last_payout_date = payoutDate;
                         }
-                    );
 
-                    console.log(`✅ [Daily Incentive] Credited Day ${newCount}/${targetDays} to ${member.Member_id} (Level ${memberLevel}): Total ₹${actualDaily} Credits`);
+                        await MemberModel.updateOne(
+                            { Member_id: member.Member_id },
+                            memberUpdate
+                        );
+
+                        console.log(`✅ [Daily Incentive] Credited Day ${newCount}/${targetDays} to ${member.Member_id} (Level ${memberLevel}): Total ₹${actualDaily} Credits`);
+                    }
+
+                } catch (memberErr) {
+                    console.error(`❌ [Daily Incentive] Error processing primary ROI for member ${member.Member_id}:`, memberErr.message);
                 }
-
-            } catch (memberErr) {
-                console.error(`❌ [Daily Incentive] Error processing primary ROI for member ${member.Member_id}:`, memberErr.message);
             }
         }
 
         // ─────────────────────────────────────────────────────────────
         // 2. PROCESS ADD-ON PACKAGES (Stored in AddOnPackageModel)
         // ─────────────────────────────────────────────────────────────
-        const addonQuery = {
-            amount: { $gt: 0 },
-            roi_status: { $ne: "Completed" }
-        };
+        if (payoutType === "all" || payoutType === "daily_incentive") {
+            const addonQuery = {
+                amount: { $gt: 0 },
+                roi_status: { $ne: "Completed" }
+            };
 
-        if (targetMemberId) {
-            addonQuery.member_id = targetMemberId;
-        }
+            if (targetMemberId) {
+                addonQuery.member_id = targetMemberId;
+            }
 
-        const activeAddons = await AddOnPackageModel.find(addonQuery);
-        console.log(`🔍 [Daily Incentive] Found ${activeAddons.length} active add-on packages.`);
+            const activeAddons = await AddOnPackageModel.find(addonQuery);
+            console.log(`🔍 [Daily Incentive] Found ${activeAddons.length} active add-on packages.`);
 
-        for (const addon of activeAddons) {
-            try {
-                const pkgAmount = Number(addon.amount) || 0;
-                if (pkgAmount <= 0) continue;
+            for (const addon of activeAddons) {
+                try {
+                    const pkgAmount = Number(addon.amount) || 0;
+                    if (pkgAmount <= 0) continue;
 
-                const targetDays = addon.roi_payout_target || 200;
-                let currentCount = addon.roi_payout_count || 0;
+                    const targetDays = addon.roi_payout_target || 200;
+                    let currentCount = addon.roi_payout_count || 0;
 
-                if (currentCount >= targetDays) {
-                    await AddOnPackageModel.updateOne(
-                        { _id: addon._id },
-                        { $set: { roi_status: "Completed" } }
-                    );
-                    continue;
-                }
+                    if (currentCount >= targetDays) {
+                        await AddOnPackageModel.updateOne(
+                            { _id: addon._id },
+                            { $set: { roi_status: "Completed" } }
+                        );
+                        continue;
+                    }
 
-                const member = await MemberModel.findOne({ Member_id: addon.member_id });
-                if (!member) continue;
+                    const member = await MemberModel.findOne({ Member_id: addon.member_id });
+                    if (!member) continue;
 
-                const investDateStr = addon.roi_start_date || (addon.createdAt ? moment(addon.createdAt).utcOffset("+05:30").format("YYYY-MM-DD") : todayStr);
-                if (!addon.roi_start_date) {
-                    await AddOnPackageModel.updateOne({ _id: addon._id }, { $set: { roi_start_date: investDateStr } });
-                }
-                const lastPayoutDateStr = addon.roi_last_payout_date || null;
+                    const investDateStr = addon.roi_start_date || (addon.createdAt ? moment(addon.createdAt).utcOffset("+05:30").format("YYYY-MM-DD") : todayStr);
+                    if (!addon.roi_start_date) {
+                        await AddOnPackageModel.updateOne({ _id: addon._id }, { $set: { roi_start_date: investDateStr } });
+                    }
+                    const lastPayoutDateStr = addon.roi_last_payout_date || null;
 
-                // Daily Incentive / ROI starts the NEXT DAY (tomorrow) after investment
-                let dateCursor;
-                if (!lastPayoutDateStr) {
-                    dateCursor = moment(investDateStr, "YYYY-MM-DD").add(1, "days");
-                } else {
-                    dateCursor = moment(lastPayoutDateStr, "YYYY-MM-DD").add(1, "days");
-                }
+                    let daysToProcess = [];
 
-                const todayMoment = moment(todayStr, "YYYY-MM-DD");
-                const daysToProcess = [];
+                    if (specificDateOnly) {
+                        const isEligibleDate = moment(todayStr, "YYYY-MM-DD").isAfter(moment(investDateStr, "YYYY-MM-DD"));
+                        if (!isEligibleDate) {
+                            continue;
+                        }
 
-                while (dateCursor.isSameOrBefore(todayMoment) && (currentCount + daysToProcess.length) < targetDays) {
-                    daysToProcess.push(dateCursor.format("YYYY-MM-DD"));
-                    dateCursor.add(1, "days");
-                }
+                        const existingTx = await TransactionModel.findOne({
+                            member_id: addon.member_id,
+                            transaction_type: "Daily Incentive",
+                            reference_no: { $regex: new RegExp(`^DI-A-${addon.package_id}-`) },
+                            $or: [
+                                { transaction_date: todayStr },
+                                { transaction_date: { $regex: new RegExp(`^${todayStr}`) } }
+                            ]
+                        });
 
-                if (daysToProcess.length === 0) {
-                    continue;
-                }
+                        if (existingTx) {
+                            continue;
+                        }
 
-                const dailyTotalAmount = Math.round(pkgAmount * 0.01 * 100) / 100;
-                const creditAmount = dailyTotalAmount;
+                        daysToProcess = [todayStr];
+                    } else {
+                        // Daily Incentive / ROI starts the NEXT DAY (tomorrow) after investment
+                        let dateCursor;
+                        if (!lastPayoutDateStr) {
+                            dateCursor = moment(investDateStr, "YYYY-MM-DD").add(1, "days");
+                        } else {
+                            dateCursor = moment(lastPayoutDateStr, "YYYY-MM-DD").add(1, "days");
+                        }
 
-                for (const payoutDate of daysToProcess) {
-                    const newCount = currentCount + 1;
-                    const txId = `DI_A_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
+                        const todayMoment = moment(todayStr, "YYYY-MM-DD");
 
-                    const dailyTx = new TransactionModel({
-                        transaction_id: txId,
-                        transaction_date: payoutDate,
-                        member_id: addon.member_id,
-                        Name: member.Name,
-                        mobileno: member.mobileno,
-                        description: `Daily Incentive (1% of ₹${pkgAmount} Add-on) - Day ${newCount}/${targetDays}`,
-                        transaction_type: "Daily Incentive",
-                        ew_credit: creditAmount.toString(),
-                        tw_credit: "0",
-                        ew_debit: "0",
-                        tw_debit: "0",
-                        gross_amount: dailyTotalAmount.toString(),
-                        net_amount: dailyTotalAmount.toString(),
-                        status: "Completed",
-                        benefit_type: "Daily Incentive",
-                        reference_no: `DI-A-${addon.package_id}-${newCount}`
-                    });
+                        while (dateCursor.isSameOrBefore(todayMoment) && (currentCount + daysToProcess.length) < targetDays) {
+                            daysToProcess.push(dateCursor.format("YYYY-MM-DD"));
+                            dateCursor.add(1, "days");
+                        }
+                    }
 
-                    await dailyTx.save();
+                    if (daysToProcess.length === 0) {
+                        continue;
+                    }
 
-                    currentCount = newCount;
-                    addonProcessedCount++;
-                    processedCount++;
+                    const dailyTotalAmount = Math.round(pkgAmount * 0.01 * 100) / 100;
+                    const creditAmount = dailyTotalAmount;
 
-                    const isNowCompleted = currentCount >= targetDays;
+                    for (const payoutDate of daysToProcess) {
+                        const newCount = currentCount + 1;
+                        const txId = `DI_A_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
 
-                    // Update AddOn Package record
-                    await AddOnPackageModel.updateOne(
-                        { _id: addon._id },
-                        {
+                        const dailyTx = new TransactionModel({
+                            transaction_id: txId,
+                            transaction_date: payoutDate,
+                            member_id: addon.member_id,
+                            Name: member.Name,
+                            mobileno: member.mobileno,
+                            description: `Daily Incentive (1% of ₹${pkgAmount} Add-on) - Day ${newCount}/${targetDays}`,
+                            transaction_type: "Daily Incentive",
+                            ew_credit: creditAmount.toString(),
+                            tw_credit: "0",
+                            ew_debit: "0",
+                            tw_debit: "0",
+                            gross_amount: dailyTotalAmount.toString(),
+                            net_amount: dailyTotalAmount.toString(),
+                            status: "Completed",
+                            benefit_type: "Daily Incentive",
+                            reference_no: `DI-A-${addon.package_id}-${newCount}`
+                        });
+
+                        await dailyTx.save();
+
+                        currentCount = newCount;
+                        addonProcessedCount++;
+                        processedCount++;
+
+                        const isNowCompleted = currentCount >= targetDays;
+
+                        const addonUpdate = {
                             $set: {
                                 roi_payout_count: currentCount,
-                                roi_last_payout_date: payoutDate,
                                 roi_status: isNowCompleted ? "Completed" : "Active"
                             }
+                        };
+                        if (!addon.roi_last_payout_date || moment(payoutDate, "YYYY-MM-DD").isAfter(moment(addon.roi_last_payout_date, "YYYY-MM-DD"))) {
+                            addonUpdate.$set.roi_last_payout_date = payoutDate;
                         }
-                    );
 
-                    // Credit Member wallet
-                    await MemberModel.updateOne(
-                        { Member_id: addon.member_id },
-                        {
-                            $inc: {
-                                wallet_balance: creditAmount
+                        // Update AddOn Package record
+                        await AddOnPackageModel.updateOne(
+                            { _id: addon._id },
+                            addonUpdate
+                        );
+
+                        // Credit Member wallet
+                        await MemberModel.updateOne(
+                            { Member_id: addon.member_id },
+                            {
+                                $inc: {
+                                    wallet_balance: creditAmount
+                                }
                             }
-                        }
-                    );
+                        );
 
-                    console.log(`✅ [Daily Incentive] Credited Addon Day ${newCount}/${targetDays} to ${addon.member_id}: Total ₹${dailyTotalAmount} Credits`);
+                        console.log(`✅ [Daily Incentive] Credited Addon Day ${newCount}/${targetDays} to ${addon.member_id}: Total ₹${dailyTotalAmount} Credits`);
+                    }
+
+                } catch (addonErr) {
+                    console.error(`❌ [Daily Incentive] Error processing addon ROI for ${addon.package_id}:`, addonErr.message);
                 }
-
-            } catch (addonErr) {
-                console.error(`❌ [Daily Incentive] Error processing addon ROI for ${addon.package_id}:`, addonErr.message);
             }
         }
 
         // ─────────────────────────────────────────────────────────────
         // 3. PROCESS 50-DAY LEVEL ROI SCHEDULES (Levels 1-7, Rank >= 3)
         // ─────────────────────────────────────────────────────────────
-        const levelRoiQuery = {
-            status: "Active",
-            daily_amount: { $gt: 0 }
-        };
+        if (payoutType === "all" || payoutType === "level_roi") {
+            const levelRoiQuery = {
+                status: "Active",
+                daily_amount: { $gt: 0 }
+            };
 
-        if (targetMemberId) {
-            levelRoiQuery.sponsor_id = targetMemberId;
-        }
+            if (targetMemberId) {
+                levelRoiQuery.sponsor_id = targetMemberId;
+            }
 
-        const activeSchedules = await LevelRoiScheduleModel.find(levelRoiQuery);
-        console.log(`🔍 [Level Daily ROI] Found ${activeSchedules.length} active 50-day Level ROI schedules.`);
+            const activeSchedules = await LevelRoiScheduleModel.find(levelRoiQuery);
+            console.log(`🔍 [Level Daily ROI] Found ${activeSchedules.length} active 50-day Level ROI schedules.`);
 
-        for (const schedule of activeSchedules) {
-            try {
-                const targetDays = schedule.target_days || 50;
-                let currentCount = schedule.payout_count || 0;
+            for (const schedule of activeSchedules) {
+                try {
+                    const targetDays = schedule.target_days || 50;
+                    let currentCount = schedule.payout_count || 0;
 
-                if (currentCount >= targetDays) {
-                    await LevelRoiScheduleModel.updateOne(
-                        { schedule_id: schedule.schedule_id },
-                        { $set: { status: "Completed" } }
-                    );
-                    continue;
-                }
-
-                // Check sponsor still exists and is active
-                const sponsor = await MemberModel.findOne({
-                    $or: [
-                        { Member_id: schedule.sponsor_id },
-                        { member_id: schedule.sponsor_id }
-                    ]
-                });
-
-                if (!sponsor || String(sponsor.status || "").toLowerCase() !== "active") {
-                    console.log(`⚠️ Sponsor ${schedule.sponsor_id} inactive or not found. Skipping schedule ${schedule.schedule_id}.`);
-                    continue;
-                }
-
-                // Determine start date and next eligible dates (Daily starts the NEXT DAY after activation)
-                const startDateStr = schedule.start_date || todayStr;
-                const lastPayoutDateStr = schedule.last_payout_date || null;
-
-                let dateCursor;
-                if (!lastPayoutDateStr) {
-                    dateCursor = moment(startDateStr, "YYYY-MM-DD").add(1, "days");
-                } else {
-                    dateCursor = moment(lastPayoutDateStr, "YYYY-MM-DD").add(1, "days");
-                }
-
-                const todayMoment = moment(todayStr, "YYYY-MM-DD");
-                const daysToProcess = [];
-
-                while (dateCursor.isSameOrBefore(todayMoment) && (currentCount + daysToProcess.length) < targetDays) {
-                    daysToProcess.push(dateCursor.format("YYYY-MM-DD"));
-                    dateCursor.add(1, "days");
-                }
-
-                if (daysToProcess.length === 0) {
-                    continue;
-                }
-
-                const dailyAmount = Number(schedule.daily_amount) || 0;
-                const totalTarget = Number(schedule.total_amount) || (dailyAmount * targetDays);
-                let currentPaid = Number(schedule.total_paid) || 0;
-
-                for (const payoutDate of daysToProcess) {
-                    const remainingAllowed = Math.max(0, totalTarget - currentPaid);
-                    if (remainingAllowed <= 0) {
+                    if (currentCount >= targetDays) {
                         await LevelRoiScheduleModel.updateOne(
                             { schedule_id: schedule.schedule_id },
                             { $set: { status: "Completed" } }
                         );
-                        break;
+                        continue;
                     }
 
-                    const actualDaily = Math.min(dailyAmount, remainingAllowed);
-                    const newCount = currentCount + 1;
-                    const txId = `LROI_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
-
-                    const descText = `Level ${schedule.level} Daily ROI (₹${actualDaily}/day) - Day ${newCount}/${targetDays} from Member ${schedule.from_member_id}`;
-
-                    // 1. Create Transaction (ew_credit wallet balance)
-                    const levelRoiTx = new TransactionModel({
-                        transaction_id: txId,
-                        transaction_date: payoutDate,
-                        member_id: schedule.sponsor_id,
-                        Name: sponsor.Name || sponsor.name,
-                        mobileno: sponsor.mobileno || sponsor.contactno,
-                        description: descText,
-                        transaction_type: "Level Daily ROI",
-                        benefit_type: "Level ROI",
-                        level: schedule.level,
-                        related_member_id: schedule.from_member_id,
-                        ew_credit: String(actualDaily),
-                        ew_debit: "0",
-                        net_amount: actualDaily,
-                        gross_amount: actualDaily,
-                        status: "Completed",
-                        reference_no: schedule.schedule_id
+                    // Check sponsor still exists and is active
+                    const sponsor = await MemberModel.findOne({
+                        $or: [
+                            { Member_id: schedule.sponsor_id },
+                            { member_id: schedule.sponsor_id }
+                        ]
                     });
 
-                    // 2. Create Payout record
-                    const payoutRecord = new PayoutModel({
-                        payout_id: Date.now() + Math.floor(Math.random() * 1000),
-                        date: moment(payoutDate, "YYYY-MM-DD").toDate(),
-                        memberId: schedule.sponsor_id,
-                        payout_type: `Level ${schedule.level} Daily ROI (50 Days)`,
-                        ref_no: schedule.schedule_id,
-                        amount: actualDaily,
-                        count: newCount,
-                        days: targetDays,
-                        level: schedule.level,
-                        sponsored_member_id: schedule.from_member_id,
-                        sponsor_id: schedule.sponsor_id,
-                        status: "Approved",
-                        description: descText
-                    });
+                    if (!sponsor || String(sponsor.status || "").toLowerCase() !== "active") {
+                        console.log(`⚠️ Sponsor ${schedule.sponsor_id} inactive or not found. Skipping schedule ${schedule.schedule_id}.`);
+                        continue;
+                    }
 
-                    await Promise.all([levelRoiTx.save(), payoutRecord.save()]);
+                    // Determine start date and next eligible dates (Daily starts the NEXT DAY after activation)
+                    const startDateStr = schedule.start_date || todayStr;
+                    const lastPayoutDateStr = schedule.last_payout_date || null;
 
-                    // 3. Update Sponsor Wallet Balance
-                    await MemberModel.updateOne(
-                        { $or: [{ Member_id: schedule.sponsor_id }, { member_id: schedule.sponsor_id }] },
-                        { $inc: { wallet_balance: actualDaily } }
-                    );
+                    let daysToProcess = [];
 
-                    currentPaid += actualDaily;
-                    currentCount = newCount;
-                    levelRoiProcessedCount++;
-                    processedCount++;
+                    if (specificDateOnly) {
+                        const isEligibleDate = moment(todayStr, "YYYY-MM-DD").isAfter(moment(startDateStr, "YYYY-MM-DD"));
+                        if (!isEligibleDate) {
+                            continue;
+                        }
 
-                    // 4. Update Schedule
-                    const isScheduleDone = currentCount >= targetDays || currentPaid >= totalTarget;
-                    await LevelRoiScheduleModel.updateOne(
-                        { schedule_id: schedule.schedule_id },
-                        {
+                        const existingTx = await TransactionModel.findOne({
+                            member_id: schedule.sponsor_id,
+                            transaction_type: "Level Daily ROI",
+                            reference_no: schedule.schedule_id,
+                            $or: [
+                                { transaction_date: todayStr },
+                                { transaction_date: { $regex: new RegExp(`^${todayStr}`) } }
+                            ]
+                        });
+
+                        if (existingTx) {
+                            continue;
+                        }
+
+                        daysToProcess = [todayStr];
+                    } else {
+                        let dateCursor;
+                        if (!lastPayoutDateStr) {
+                            dateCursor = moment(startDateStr, "YYYY-MM-DD").add(1, "days");
+                        } else {
+                            dateCursor = moment(lastPayoutDateStr, "YYYY-MM-DD").add(1, "days");
+                        }
+
+                        const todayMoment = moment(todayStr, "YYYY-MM-DD");
+
+                        while (dateCursor.isSameOrBefore(todayMoment) && (currentCount + daysToProcess.length) < targetDays) {
+                            daysToProcess.push(dateCursor.format("YYYY-MM-DD"));
+                            dateCursor.add(1, "days");
+                        }
+                    }
+
+                    if (daysToProcess.length === 0) {
+                        continue;
+                    }
+
+                    const dailyAmount = Number(schedule.daily_amount) || 0;
+                    const totalTarget = Number(schedule.total_amount) || (dailyAmount * targetDays);
+                    let currentPaid = Number(schedule.total_paid) || 0;
+
+                    for (const payoutDate of daysToProcess) {
+                        const remainingAllowed = Math.max(0, totalTarget - currentPaid);
+                        if (remainingAllowed <= 0) {
+                            await LevelRoiScheduleModel.updateOne(
+                                { schedule_id: schedule.schedule_id },
+                                { $set: { status: "Completed" } }
+                            );
+                            break;
+                        }
+
+                        const actualDaily = Math.min(dailyAmount, remainingAllowed);
+                        const newCount = currentCount + 1;
+                        const txId = `LROI_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
+
+                        const descText = `Level ${schedule.level} Daily ROI (₹${actualDaily}/day) - Day ${newCount}/${targetDays} from Member ${schedule.from_member_id}`;
+
+                        // 1. Create Transaction (ew_credit wallet balance)
+                        const levelRoiTx = new TransactionModel({
+                            transaction_id: txId,
+                            transaction_date: payoutDate,
+                            member_id: schedule.sponsor_id,
+                            Name: sponsor.Name || sponsor.name,
+                            mobileno: sponsor.mobileno || sponsor.contactno,
+                            description: descText,
+                            transaction_type: "Level Daily ROI",
+                            benefit_type: "Level ROI",
+                            level: schedule.level,
+                            related_member_id: schedule.from_member_id,
+                            ew_credit: String(actualDaily),
+                            ew_debit: "0",
+                            net_amount: actualDaily,
+                            gross_amount: actualDaily,
+                            status: "Completed",
+                            reference_no: schedule.schedule_id
+                        });
+
+                        // 2. Create Payout record
+                        const payoutRecord = new PayoutModel({
+                            payout_id: Date.now() + Math.floor(Math.random() * 1000),
+                            date: moment(payoutDate, "YYYY-MM-DD").toDate(),
+                            memberId: schedule.sponsor_id,
+                            payout_type: `Level ${schedule.level} Daily ROI (50 Days)`,
+                            ref_no: schedule.schedule_id,
+                            amount: actualDaily,
+                            count: newCount,
+                            days: targetDays,
+                            level: schedule.level,
+                            sponsored_member_id: schedule.from_member_id,
+                            sponsor_id: schedule.sponsor_id,
+                            status: "Approved",
+                            description: descText
+                        });
+
+                        await Promise.all([levelRoiTx.save(), payoutRecord.save()]);
+
+                        // 3. Update Sponsor Wallet Balance
+                        await MemberModel.updateOne(
+                            { $or: [{ Member_id: schedule.sponsor_id }, { member_id: schedule.sponsor_id }] },
+                            { $inc: { wallet_balance: actualDaily } }
+                        );
+
+                        currentPaid += actualDaily;
+                        currentCount = newCount;
+                        levelRoiProcessedCount++;
+                        processedCount++;
+
+                        // 4. Update Schedule
+                        const isScheduleDone = currentCount >= targetDays || currentPaid >= totalTarget;
+                        const scheduleUpdate = {
                             $set: {
                                 payout_count: currentCount,
                                 total_paid: Math.round(currentPaid * 100) / 100,
-                                last_payout_date: payoutDate,
                                 status: isScheduleDone ? "Completed" : "Active"
                             }
+                        };
+                        if (!schedule.last_payout_date || moment(payoutDate, "YYYY-MM-DD").isAfter(moment(schedule.last_payout_date, "YYYY-MM-DD"))) {
+                            scheduleUpdate.$set.last_payout_date = payoutDate;
                         }
-                    );
 
-                    console.log(`✅ [Level Daily ROI] Credited ₹${actualDaily} to ${schedule.sponsor_id} (Level ${schedule.level}, Day ${newCount}/${targetDays})`);
+                        await LevelRoiScheduleModel.updateOne(
+                            { schedule_id: schedule.schedule_id },
+                            scheduleUpdate
+                        );
 
-                    if (isScheduleDone) break;
+                        console.log(`✅ [Level Daily ROI] Credited ₹${actualDaily} to ${schedule.sponsor_id} (Level ${schedule.level}, Day ${newCount}/${targetDays})`);
+
+                        if (isScheduleDone) break;
+                    }
+                } catch (scheduleErr) {
+                    console.error(`❌ [Level Daily ROI] Error processing schedule ${schedule.schedule_id}:`, scheduleErr.message);
                 }
-            } catch (scheduleErr) {
-                console.error(`❌ [Level Daily ROI] Error processing schedule ${schedule.schedule_id}:`, scheduleErr.message);
             }
         }
 
         console.log(`🎉 [Daily Incentive] Completed processing: ${processedCount} payouts (${baseProcessedCount} primary, ${addonProcessedCount} addon, ${levelRoiProcessedCount} level ROI).`);
+
+        const message = processedCount > 0
+            ? `Successfully processed ${processedCount} missing payout(s) for ${todayStr} (${baseProcessedCount} Primary, ${addonProcessedCount} Add-on, ${levelRoiProcessedCount} Level ROI).`
+            : `No missing payouts found for ${todayStr}. All eligible members already have transactions.`;
 
         return {
             success: true,
@@ -470,7 +576,9 @@ const processDailyROI = async (targetMemberId = null, customToday = null) => {
             addonProcessedCount,
             levelRoiProcessedCount,
             processedCount,
-            message: `Processed ${processedCount} Daily Incentive payouts successfully.`
+            targetDate: todayStr,
+            specificDateOnly,
+            message
         };
 
     } catch (globalErr) {

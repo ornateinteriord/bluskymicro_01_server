@@ -321,7 +321,9 @@ const repaymentLoan = async (req, res) => {
 
 const triggerDailyROI = async (req, res) => {
   try {
-    const result = await processDailyROI();
+    const { date, memberId, specificDateOnly, type } = req.body || {};
+    const isSpecificDate = specificDateOnly !== undefined ? Boolean(specificDateOnly) : Boolean(date);
+    const result = await processDailyROI(memberId || null, date || null, isSpecificDate, type || "all");
     return res.status(200).json(result);
   } catch (error) {
     return res.status(500).json({
