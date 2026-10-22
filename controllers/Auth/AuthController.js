@@ -396,7 +396,9 @@ const impersonate = async (req, res) => {
 const sendRegistrationOTP = async (req, res) => {
   try {
     const { mobileno } = req.body;
-    const cleanMobile = String(mobileno || "").replace(/\D/g, "").slice(0, 10);
+    let rawMobile = String(mobileno || "").replace(/\D/g, "");
+    const cleanMobile = rawMobile.length > 10 ? rawMobile.slice(-10) : rawMobile;
+
     if (!cleanMobile || cleanMobile.length !== 10) {
       return res.status(400).json({ success: false, message: "Please enter a valid 10-digit mobile number." });
     }
@@ -412,13 +414,14 @@ const sendRegistrationOTP = async (req, res) => {
     }
 
     const otp = generateOTP(6);
-    storeOTP(cleanMobile, otp);
+    // 10 minutes expiration
+    await storeOTP(cleanMobile, otp, 10);
 
-    console.log(`📱 [REGISTRATION OTP] Mobile: ${cleanMobile} -> OTP: ${otp}`);
+    console.log(`📱 [REGISTRATION OTP] Mobile: ${cleanMobile} -> OTP: ${otp} (valid for 10 minutes)`);
 
     return res.status(200).json({
       success: true,
-      message: `OTP sent successfully to +91 ${cleanMobile}`,
+      message: `OTP sent successfully to +91 ${cleanMobile}. Valid for 10 minutes.`,
       devOtp: otp,
     });
   } catch (error) {
@@ -430,11 +433,16 @@ const sendRegistrationOTP = async (req, res) => {
 const verifyRegistrationOTP = async (req, res) => {
   try {
     const { mobileno, otp } = req.body;
-    const cleanMobile = String(mobileno || "").replace(/\D/g, "").slice(0, 10);
+    let rawMobile = String(mobileno || "").replace(/\D/g, "");
+    const cleanMobile = rawMobile.length > 10 ? rawMobile.slice(-10) : rawMobile;
 
-    const isValid = verifyOTP(cleanMobile, String(otp || "").trim());
+    if (!cleanMobile || cleanMobile.length !== 10) {
+      return res.status(400).json({ success: false, message: "Please enter a valid 10-digit mobile number." });
+    }
+
+    const isValid = await verifyOTP(cleanMobile, String(otp || "").trim());
     if (!isValid) {
-      return res.status(400).json({ success: false, message: "Invalid or expired OTP. Please try again." });
+      return res.status(400).json({ success: false, message: "Invalid or expired OTP. Please try again or request a new OTP." });
     }
 
     const jwtSecret = process.env.JWT_SECRET || "blusky_microservices_secure_jwt_secret_key_2026";

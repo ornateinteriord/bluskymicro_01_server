@@ -806,7 +806,7 @@ const sendWithdrawalOTP = async (req, res) => {
           <h1 style="color: #fbbf24; margin: 0; font-size: 32px; letter-spacing: 5px;">${otp}</h1>
         </div>
         <p style="color: #9ca3af; font-size: 14px; line-height: 1.6; margin-bottom: 20px;">
-          This OTP is valid for 3 minutes. If you did not request this withdrawal, please secure your account immediately.
+          This OTP is valid for 10 minutes. If you did not request this withdrawal, please secure your account immediately.
         </p>
       </div>
       <div style="text-align: center; margin-top: 25px; color: #9ca3af; font-size: 12px;">
